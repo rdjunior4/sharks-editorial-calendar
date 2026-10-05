@@ -100,6 +100,7 @@ export interface ProspectingCampaign {
   location: string | null;
   company_size: string | null;
   icp_description: string | null;
+  trigger_keywords: string[] | null;
   target_count: number;
   channels: string[];
   automation_level: AutomationLevel;
@@ -119,6 +120,7 @@ export interface CampaignPayload {
   location: string | null;
   company_size: string | null;
   icp_description: string | null;
+  trigger_keywords?: string[];
   target_count: number;
   channels: string[];
   automation_level: AutomationLevel;

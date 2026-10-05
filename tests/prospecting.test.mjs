@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
@@ -273,4 +273,63 @@ test('UI: callback OAuth, botão no canais e DM no drawer', async () => {
   const drawer = await readFile(new URL('../src/components/crm/LeadDrawer.tsx', import.meta.url), 'utf8');
   assert.ok(drawer.includes('IG_SEND_DM_EDGE'));
   assert.ok(drawer.includes('Enviar DM'));
+});
+/* ---- IG-2: gatilhos por campanha + assets de IA (075) ---- */
+
+test('migration 075: gatilhos, assets com N:N por produto e bucket agent-assets', async () => {
+  const m = await readFile(new URL('../supabase/migrations/075_ig2_triggers_assets.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('ADD COLUMN IF NOT EXISTS trigger_keywords text[]'));
+  assert.ok(m.includes('CREATE TABLE IF NOT EXISTS public.environment_assets'));
+  assert.ok(m.includes("type text NOT NULL DEFAULT 'case'"));
+  assert.ok(m.includes('environment_asset_products'));
+  assert.ok(m.includes('is_env_staff((select auth.uid()), environment)'));
+  assert.ok(m.includes("('agent-assets', 'agent-assets', true)"));
+});
+
+test('matching de gatilhos: tolerante a acento/caixa e dedupe de eventos Meta', async () => {
+  assert.equal(ingest.normalizeTriggerText('  Quero ORÇAMENTO! '), 'quero orcamento');
+  assert.equal(ingest.normalizeTriggerText('me passa o preço'), 'me passa o preco');
+  assert.equal(ingest.matchesTriggers('quero um orçamento para padaria', ['quero', 'preço']), true);
+  assert.equal(ingest.matchesTriggers('qual é o preço?', ['quero', 'preço']), true);
+  assert.equal(ingest.matchesTriggers('hi there', ['quero']), false);
+  assert.equal(ingest.matchesTriggers('x', []), false);
+  assert.equal(ingest.matchesTriggers(null, ['quero']), false);
+  assert.equal(ingest.shouldProcessEvent({ last_comment_id: 'C1' }, 'comment', 'C1', 'last_comment_id'), false);
+  assert.equal(ingest.shouldProcessEvent({ last_comment_id: 'C1' }, 'comment', 'C2', 'last_comment_id'), true);
+  assert.equal(ingest.shouldProcessEvent(null, 'comment', 'C2', 'last_comment_id'), true);
+});
+
+test('worker GERA html2: assets no prompt do GLM e contexto de gatilho no ingest', async () => {
+  const workerTxt = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(workerTxt.includes('environment_asset_products'));
+  assert.ok(workerTxt.includes('asset:environment_asset_products_asset_id_fkey'));
+  assert.ok(workerTxt.includes('assets,'));
+  assert.ok(workerTxt.includes("dedupe_key: `comment-${commentId}`") === false);
+
+  const ingestTxt = await readFile(new URL('../supabase/functions/prospecting-ingest/index.ts', import.meta.url), 'utf8');
+  assert.ok(ingestTxt.includes('loadCampaignTriggers'));
+  assert.ok(ingestTxt.includes('last_comment_id'));
+  assert.ok(ingestTxt.includes('last_message_mid'));
+  assert.ok(ingestTxt.includes('matchesTriggers(text, keywords)'));
+
+  const aiTxt = await readFile(new URL('../supabase/functions/_shared/prospecting/ai.ts', import.meta.url), 'utf8');
+  assert.ok(aiTxt.includes('buildAssetsContext'));
+});
+
+test('UI: gatilhos no form da campanha e nova aba Assets de IA em Produtos', async () => {
+  const form = await readFile(new URL('../src/components/prospecting/CampaignFormModal.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes('trigger_keywords'));
+  assert.ok(form.includes('Palavras-chave de gatilho'));
+
+  const products = await readFile(new URL('../src/components/products/ProductsPage.tsx', import.meta.url), 'utf8');
+  assert.ok(products.includes("label: 'Assets de IA'"));
+  assert.ok(products.includes('EnvAgentAssets'));
+
+  const assetsPage = await readFile(new URL('../src/components/products/EnvAgentAssets.tsx', import.meta.url), 'utf8');
+  assert.ok(assetsPage.includes('agent-assets'));
+  assert.ok(assetsPage.includes('prova_social'));
+  assert.ok(assetsPage.includes('environment_asset_products'));
+
+  const types = await readFile(new URL('../src/lib/prospecting/types.ts', import.meta.url), 'utf8');
+  assert.ok(types.includes('trigger_keywords'));
 });

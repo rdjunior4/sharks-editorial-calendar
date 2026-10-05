@@ -19,6 +19,7 @@ export interface CampaignFormValues {
   location: string;
   company_size: string;
   icp_description: string;
+  trigger_keywords: string;
   target_count: string;
   channels: string[];
   automation_level: AutomationLevel;
@@ -29,8 +30,8 @@ export interface CampaignFormValues {
 
 const EMPTY: CampaignFormValues = {
   name: '', objective: '', segment: '', location: '', company_size: '',
-  icp_description: '', target_count: '100', channels: ['email'], automation_level: 'assisted',
-  assigned_to: '', product_ids: [], status: 'draft',
+  icp_description: '', trigger_keywords: '', target_count: '100', channels: ['email'],
+  automation_level: 'assisted', assigned_to: '', product_ids: [], status: 'draft',
 };
 
 interface CampaignFormModalProps {
@@ -59,6 +60,7 @@ export default function CampaignFormModal({
           location: campaign.location ?? '',
           company_size: campaign.company_size ?? '',
           icp_description: campaign.icp_description ?? '',
+          trigger_keywords: (campaign.trigger_keywords ?? []).join(', '),
           target_count: String(campaign.target_count ?? 100),
           channels: campaign.channels ?? [],
           automation_level: campaign.automation_level,
@@ -126,6 +128,14 @@ export default function CampaignFormModal({
         />
         <p className="text-[11px] text-gray-400 -mt-2">O agente usa esta descrição para descobrir empresas e medir o fit de cada lead contra este perfil.</p>
 
+        <Input
+          label="Palavras-chave de gatilho (separadas por vírgula)"
+          value={form.trigger_keywords}
+          onChange={(e) => setForm(f => ({ ...f, trigger_keywords: e.target.value }))}
+          placeholder="Ex.: quero, orçamento, preço, faturamento, consulta"
+        />
+        <p className="text-[11px] text-gray-400 -mt-2">Quando um prospect comentar ou mandar DM no Instagram contendo um desses termos, o agente entra automaticamente.</p>
+
         <ChipMultiSelect
           label="Produtos ofertados"
           options={catalogProducts.map(p => ({ id: p.id, name: p.name }))}
@@ -186,6 +196,10 @@ export function payloadFromValues(values: CampaignFormValues, environment: Prosp
     location: values.location.trim() || null,
     company_size: values.company_size || null,
     icp_description: values.icp_description.trim() || null,
+    trigger_keywords: (values.trigger_keywords || '')
+      .split(/[,;\n]/)
+      .map(s => s.trim())
+      .filter(Boolean),
     target_count: Math.max(1, Math.min(100000, parseInt(values.target_count, 10) || 100)),
     channels: values.channels,
     automation_level: values.automation_level,

@@ -13,6 +13,7 @@
 // ==========================================
 
 import { serviceClient, corsHeaders } from '../_shared/google.ts';
+import { matchesTriggers, shouldProcessEvent } from '../_shared/prospecting/ingest.ts';
 
 /** Token do canal Instagram: conexão in-app (074) tem prioridade; fallback: segredo META_PAGE_TOKEN */
 async function loadPageToken(admin: ReturnType<typeof serviceClient>, environment: string): Promise<string | null> {
@@ -77,12 +78,12 @@ async function findLead(
   if (filters.length === 0) return null;
   const { data } = await admin
     .from('crm_leads')
-    .select('id, name, prospecting_status')
+    .select('id, name, prospecting_status, ai_data')
     .eq('environment', environment)
     .or(filters.join(','))
     .limit(1)
     .maybeSingle();
-  return (data as unknown as { id: string; name: string; prospecting_status: string | null }) ?? null;
+  return (data as unknown as { id: string; name: string; prospecting_status: string | null; ai_data?: Record<string, unknown> }) ?? null;
 }
 
 async function createLead(
@@ -126,6 +127,30 @@ async function logActivity(admin: ReturnType<typeof serviceClient>, leadId: stri
 
 async function registerReengagement(admin: ReturnType<typeof serviceClient>, leadId: string, src: string, message: string | null) {
   await logActivity(admin, leadId, 'system', `Reengajou via ${src}.${message ? ` Mensagem: ${message}` : ''}`);
+}
+
+/* ─── IG-2: dedupe idempotente + gatilhos por campanha ─── */
+async function mergeAiData(
+  admin: ReturnType<typeof serviceClient>,
+  leadId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const { data: cur } = await admin.from('crm_leads').select('ai_data').eq('id', leadId).maybeSingle();
+  const base = (((cur as { ai_data?: object } | null)?.ai_data ?? {}) as object);
+  await admin.from('crm_leads').update({ ai_data: { ...base, ...patch } }).eq('id', leadId);
+}
+
+async function loadCampaignTriggers(
+  admin: ReturnType<typeof serviceClient>,
+  campaignId: string,
+): Promise<string[]> {
+  const { data } = await admin
+    .from('prospecting_campaigns')
+    .select('trigger_keywords')
+    .eq('id', campaignId)
+    .maybeSingle();
+  const kws = (data as { trigger_keywords?: string[] } | null)?.trigger_keywords ?? [];
+  return Array.isArray(kws) ? kws : [];
 }
 
 async function handleMeta(
@@ -178,6 +203,11 @@ async function handleMeta(
         if (!username) continue;
         const contact: Contact = { name: `@${username}`, email: null, phone: null, social_instagram: username };
         const existing = await findLead(admin, environment, { social_instagram: username });
+        // dedupe idempotente: webhook Meta reenvia eventos em retry
+        if (existing && !shouldProcessEvent(existing.ai_data, 'comment', commentId, 'last_comment_id')) {
+          results.push({ kind: 'comment', skipped: 'evento duplicado' });
+          continue;
+        }
         let leadId: string;
         let created: boolean;
         if (existing) {
@@ -188,14 +218,38 @@ async function handleMeta(
           leadId = r.leadId;
           created = true;
         }
+        await mergeAiData(admin, leadId, { last_comment_id: commentId });
+
+        // gatilho por palavra-chave da campanha → agente entra
+        let triggered = false;
+        if (campaignId) {
+          const keywords = await loadCampaignTriggers(admin, campaignId);
+          triggered = matchesTriggers(text, keywords);
+        }
+
         const pr = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${commentId}/private_replies`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: 'Obrigado pelo comentário! Acabei de te enviar uma mensagem aqui no direct 👋', access_token: pageToken }),
         });
         if (!pr.ok) console.error('[ingest] private reply falhou:', pr.status);
-        await logActivity(admin, leadId, 'system', `Comentou no post — private reply ${pr.ok ? 'enviada' : 'falhou'}: "${text.slice(0, 120)}"`);
-        results.push({ kind: 'comment', lead_id: leadId, created });
+
+        if (triggered && campaignId) {
+          await logActivity(admin, leadId, 'reply_received', `🔵 Comentário com GATILHO no post: "${text.slice(0, 160)}" — private reply ${pr.ok ? 'enviada' : 'falhou'}.`);
+          await admin.from('prospecting_jobs').insert({
+            campaign_id: campaignId,
+            lead_id: leadId,
+            type: 'generate_message',
+            dedupe_key: `comment-${commentId}`,
+            input: { lead_id: leadId, context: `Comentário do prospect no Instagram (bateu no gatilho): "${text.slice(0, 300)}" — responda de forma personalizada e convide para conversar melhor.` },
+          });
+          if (['discovered', 'queued'].includes(String(existing?.prospecting_status ?? ''))) {
+            await admin.from('crm_leads').update({ prospecting_status: 'replied' }).eq('id', leadId);
+          }
+        } else {
+          await logActivity(admin, leadId, 'system', `Comentou no post — private reply ${pr.ok ? 'enviada' : 'falhou'}: "${text.slice(0, 120)}"`);
+        }
+        results.push({ kind: 'comment', lead_id: leadId, created, triggered });
         continue;
       }
 
@@ -203,18 +257,35 @@ async function handleMeta(
       if (field === 'messages') {
         const message = ((value?.message ?? {}) as Record<string, unknown>);
         const text = String(message?.text ?? '').slice(0, 500);
+        const mid = String(message?.mid ?? '');
         const senderSid = String((value?.sender as Record<string, unknown>)?.id ?? '') || String((value?.from as Record<string, unknown>)?.id ?? '');
         const handle = cleanHandle(String((value?.from as Record<string, unknown>)?.username ?? ''));
         if (!handle) continue;
         const existing = await findLead(admin, environment, { social_instagram: handle });
         if (!existing) { results.push({ kind: 'message', skipped: 'lead nao encontrado' }); continue; }
+        if (mid && !shouldProcessEvent(existing.ai_data, 'dm', mid, 'last_message_mid')) {
+          results.push({ kind: 'message', skipped: 'evento duplicado' });
+          continue;
+        }
         // guarda o IGSID do prospect — habilita DM futura (instagram-send-dm)
         if (senderSid) {
-          const { data: cur } = await admin.from('crm_leads').select('ai_data').eq('id', existing.id).maybeSingle();
-          const merged = { ...(((cur as { ai_data?: object } | null)?.ai_data ?? {}) as object), ig_sid: senderSid };
-          await admin.from('crm_leads').update({ ai_data: merged }).eq('id', existing.id);
+          await mergeAiData(admin, existing.id, { ig_sid: senderSid });
         }
-        await logActivity(admin, existing.id, 'reply_received', `DM recebida: ${text || '(midia)'}`);
+        if (mid) {
+          await mergeAiData(admin, existing.id, { last_message_mid: mid });
+        }
+        // gatilho também na DM (075)
+        let triggered = false;
+        if (campaignId) {
+          const keywords = await loadCampaignTriggers(admin, campaignId);
+          triggered = matchesTriggers(text, keywords);
+        }
+        await logActivity(
+          admin,
+          existing.id,
+          'reply_received',
+          `DM recebida${triggered ? ' — ⚡ GATILHO' : ''}: ${text || '(midia)'}`,
+        );
         if (existing.prospecting_status === 'contacted' || existing.prospecting_status === 'queued' || existing.prospecting_status === 'discovered') {
           await admin.from('crm_leads').update({ prospecting_status: 'replied' }).eq('id', existing.id);
         }
@@ -223,10 +294,11 @@ async function handleMeta(
             campaign_id: campaignId,
             lead_id: existing.id,
             type: 'generate_message',
-            input: { lead_id: existing.id, context: 'Resposta do prospect no Instagram: ' + text },
+            ...(mid ? { dedupe_key: `dm-${mid}` } : {}),
+            input: { lead_id: existing.id, context: `Resposta do prospect no Instagram${triggered ? ' (gatilho)' : ''}: ${text}` },
           });
         }
-        results.push({ kind: 'message', lead_id: existing.id });
+        results.push({ kind: 'message', lead_id: existing.id, triggered });
       }
     }
   }
