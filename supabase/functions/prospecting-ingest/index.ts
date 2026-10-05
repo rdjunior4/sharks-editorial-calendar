@@ -308,6 +308,7 @@ async function handleMeta(
 Deno.serve(async req => {
   Object.assign(CORS, corsHeaders(req));
   try {
+    const admin = serviceClient();
     const url = new URL(req.url);
     const workerSecret = Deno.env.get('WORKER_SECRET');
 
