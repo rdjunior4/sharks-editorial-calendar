@@ -191,11 +191,31 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
 
   const { data: prodRows } = await admin
     .from('prospecting_campaign_products')
-    .select('product:environment_products(name)')
+    .select('product:environment_products(id, name)')
     .eq('campaign_id', job.campaign_id);
-  const products = ((prodRows ?? []) as Array<{ product?: { name?: string } }>).map(r => r.product?.name).filter((n): n is string => !!n);
+  const prodLinks = ((prodRows ?? []) as unknown as Array<{ product?: { id?: string; name?: string } }>);
+  const products = prodLinks.map(r => r.product?.name).filter((n): n is string => !!n);
+  const productIds = prodLinks.map(r => r.product?.id).filter((id): id is string => !!id);
 
   const { data: camp } = await admin.from('prospecting_campaigns').select('name, icp_description').eq('id', job.campaign_id).maybeSingle();
+
+  // ─── Assets de IA vinculados aos produtos da campanha (075) ───
+  const assets: string[] = [];
+  if (productIds.length > 0) {
+    const { data: assetRows } = await admin
+      .from('environment_asset_products')
+      .select('asset:environment_asset_products_asset_id_fkey(title, content, file_url)')
+      .in('product_id', productIds);
+    for (const r of ((assetRows ?? []) as unknown as Array<{ asset?: { title?: string; content?: string; file_url?: string } } | null>)) {
+      const a = r?.asset;
+      if (!a) continue;
+      const parts: string[] = [];
+      if (a.title) parts.push(a.title);
+      if (a.content) parts.push(a.content.slice(0, 400));
+      if (a.file_url) parts.push(`materia: ${a.file_url}`);
+      assets.push(parts.join(' — '));
+    }
+  }
 
   const icpDescription = (camp as { icp_description?: string | null } | null)?.icp_description ?? null;
   const draft = await getGenerativeAI().generateApproach({
@@ -204,6 +224,7 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
     products,
     personality: settings.personality,
     icpDescription,
+    assets,
   });
 
   // ─── Voz: response_mode=audio/both → TTS → bucket agent-voice → metadata.audio_url ───

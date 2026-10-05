@@ -65,6 +65,8 @@ export interface ApproachInput {
   personality: AgentPersonality;
   research?: string | null;
   icpDescription?: string | null;
+  /** Assets vinculados aos produtos da campanha (provas sociais, cases, FAQ, portfólio) */
+  assets?: string[];
 }
 
 export interface ApproachDraft {
@@ -75,6 +77,21 @@ export interface ApproachDraft {
 export interface GenerativeAI {
   readonly name: string;
   generateApproach(input: ApproachInput): Promise<ApproachDraft>;
+}
+
+/** Consolida os assets em blocos compactos para o prompt (cap de tamanho). */
+export function buildAssetsContext(assets: string[] | null | undefined, maxChars = 1400): string {
+  const blocks: string[] = [];
+  let used = 0;
+  for (const a of (assets ?? [])) {
+    const clean = (a ?? '').trim();
+    if (!clean) continue;
+    const block = `- ${clean.slice(0, 300)}`;
+    if (used + block.length > maxChars) break;
+    blocks.push(block);
+    used += block.length;
+  }
+  return blocks.join('\n');
 }
 
 /* ─── Mock de decisão (determinístico) ─── */
@@ -273,6 +290,7 @@ export class GlmProvider implements GenerativeAI {
       input.research ? `Pesquisa: ${input.research.slice(0, 600)}` : '',
       `Produtos relevantes: ${products}`,
       input.icpDescription ? `Público-alvo da campanha: ${input.icpDescription.slice(0, 400)}` : '',
+      buildAssetsContext(input.assets) ? `Provas, cases e materiais disponíveis (cite os que fizerem sentido, sem inventar dados):\n${buildAssetsContext(input.assets)}` : '',
       '',
       'Escreva a primeira mensagem de abordagem.',
     ].filter(Boolean).join('\n');

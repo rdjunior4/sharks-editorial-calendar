@@ -29,8 +29,46 @@ export function mapMetaLeadFields(fieldData: Array<{ name?: string; values?: str
   return { name, email, phone };
 }
 
-/** Extrai os leadgen de um webhook Meta (pode vir múltiplos entries/changes). */
-export function extractMetaLeadIds(payload: Record<string, unknown>): Array<{ pageId: string; leadId: string }> {
+/* ─── IG-2: gatilhos por palavra-chave (comentários/DMs) ─── */
+
+/** lower + sem acentos + só letras/números/espaço — para matching tolerante */
+export function normalizeTriggerText(v: string | null | undefined): string {
+  return (v ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Alguma keyword da campanha aparece no texto? (substring, palavra ≥ 3 chars) */
+export function matchesTriggers(text: string | null | undefined, keywords: string[] | null | undefined): boolean {
+  const hay = normalizeTriggerText(text);
+  if (!hay) return false;
+  return (keywords ?? []).some(k => {
+    const needle = normalizeTriggerText(k);
+    return needle.length >= 3 && hay.includes(needle);
+  });
+}
+
+/**
+ * Dedupe idempotente de eventos Meta (webhook reenvia em retry):
+ * compara o id do evento com o último registrado no ai_data do lead.
+ */
+export function shouldProcessEvent(
+  aiData: unknown,
+  field: 'event' | string,
+  eventId: string,
+  idKey: string,
+): boolean {
+  if (!eventId) return true;
+  const meta = (aiData ?? null) as { [k: string]: unknown } | null;
+  const last = meta?.[idKey];
+  return typeof last !== 'string' || last !== eventId;
+}
+
+/** Extrai os leadgen de um webhook Meta (pode vir múltiplos entries/changes). */export function extractMetaLeadIds(payload: Record<string, unknown>): Array<{ pageId: string; leadId: string }> {
   const out: Array<{ pageId: string; leadId: string }> = [];
   const entries = (payload?.entry ?? []) as Array<Record<string, unknown>>;
   for (const entry of entries) {
