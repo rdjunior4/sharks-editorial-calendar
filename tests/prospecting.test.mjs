@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
@@ -373,4 +373,45 @@ test('hooks e UI: pagina Parceiros no padrao do catalogo + marcos no calendario'
   assert.ok(cal.includes('useCalendarMarcos'));
   assert.ok(cal.includes('dayMarcos'));
   assert.ok(cal.includes("'lead_cadastrado'"));
+});
+/* ---- WH-1: conversa do agente ---- */
+
+test('GLM de conversa: prompt de chat e factory', () => {
+  const prompt = ai.buildGlmConversationPrompt(
+    { agent_name: 'Sofia', tone: 'amigavel', language: 'pt-BR', signature: '— Sharks' },
+    'PILOTO SP',
+  );
+  assert.ok(prompt.includes('Sofia'));
+  assert.ok(prompt.includes('PILOTO SP'));
+  assert.ok(prompt.includes('80 palavras'));
+  assert.ok(typeof ai.glmChatOk === 'function');
+  const chat = ai.getGenerativeChatAI();
+  assert.ok(['glm', 'mock'].includes(chat.name));
+});
+
+test('migration/edge da conversa: worker-secret, dedupe mid, contexto rico, TTS e sent', async () => {
+  const edge = await readFile(new URL('../supabase/functions/prospecting-conversation/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("action === 'sent'"));
+  assert.ok(edge.includes('last_inbound_mid'));
+  assert.ok(edge.includes('loadAgentContext'));
+  assert.ok(edge.includes('environment_asset_products'));
+  assert.ok(edge.includes('getGenerativeChatAI()'));
+  assert.ok(edge.includes('synthesizeReply'));
+  assert.ok(edge.includes('agent-voice'));
+  assert.ok(edge.includes('findLead(admin, environment, contact)'));
+  assert.ok(edge.includes("'reply_received'"));
+});
+
+test('n8n WH1: flow com endereco (webhook → valida → cerebro → envio → registro) e JSON gerado', async () => {
+  const json1 = await readFile(new URL('../n8n/oracullo-conversation.json', import.meta.url), 'utf8');
+  const conv = JSON.parse(json1);
+  const names = conv.nodes.map(n => n.name);
+  for (const expected of ['Evolution Webhook', 'Normalizar Mensagem', 'Mensagem valida?', 'Cerebro da Conversa (Edge)', 'Preparar Resposta', 'Evolution Enviar Resposta', 'Registrar Envio (Edge)', 'Callback Diagnostico']) {
+    assert.ok(names.includes(expected), `node ausente: ${expected}`);
+  }
+  const brain = conv.nodes.find(n => n.name === 'Cerebro da Conversa (Edge)');
+  assert.ok(brain.parameters.url.includes('prospecting-conversation'));
+  assert.ok(brain.parameters.jsonBody.includes('action'));
+  const send = conv.nodes.find(n => n.name === 'Evolution Enviar Resposta');
+  assert.ok(send.parameters.url.includes('sendAudio'));
 });
