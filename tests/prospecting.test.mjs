@@ -333,3 +333,44 @@ test('UI: gatilhos no form da campanha e nova aba Assets de IA em Produtos', asy
   const types = await readFile(new URL('../src/lib/prospecting/types.ts', import.meta.url), 'utf8');
   assert.ok(types.includes('trigger_keywords'));
 });
+/* ---- Parceiros + Marcos (076) ---- */
+
+test('migration 076: parceiros, marcos e trigger de lead automatica', async () => {
+  const m = await readFile(new URL('../supabase/migrations/076_partners_marcos.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('CREATE TABLE IF NOT EXISTS public.partners'));
+  assert.ok(m.includes('CREATE TABLE IF NOT EXISTS public.calendar_marcos'));
+  assert.ok(m.includes("kind IN ('lead_cadastrado','reuniao_parceiro','acao_parceiro')"));
+  assert.ok(m.includes("status IN ('planned','done','canceled')"));
+  assert.ok(m.includes('create_lead_milestone'));
+  assert.ok(m.includes('AFTER INSERT ON public.crm_leads'));
+  assert.ok(m.includes('🎯 Lead novo: '));
+  assert.ok(m.includes('is_env_staff((select auth.uid()), environment)'));
+});
+
+test('hooks e UI: pagina Parceiros no padrao do catalogo + marcos no calendario', async () => {
+  const hook = await readFile(new URL('../src/hooks/usePartners.ts', import.meta.url), 'utf8');
+  assert.ok(hook.includes('usePartners'));
+  assert.ok(hook.includes('useCalendarMarcos'));
+  assert.ok(hook.includes('calendar_marcos_partner_id_fkey'));
+  assert.ok(hook.includes('calendar_marcos_responsible_id_fkey'));
+
+  const page = await readFile(new URL('../src/components/partners/PartnersPage.tsx', import.meta.url), 'utf8');
+  assert.ok(page.includes('Planejar'));
+  assert.ok(page.includes('createMarco'));
+  assert.ok(page.includes('reuniao_parceiro'));
+  assert.ok(page.includes('acao_parceiro'));
+
+  const nav = await readFile(new URL('../src/components/layout/navItems.ts', import.meta.url), 'utf8');
+  assert.ok(nav.includes("path: '/sharks/parceiros'"));
+  assert.ok(nav.includes("path: '/estrategos/parceiros'"));
+  assert.ok(nav.includes('Handshake'));
+
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.ok(app.includes('"/sharks/parceiros"'));
+  assert.ok(app.includes('"/estrategos/parceiros"'));
+
+  const cal = await readFile(new URL('../src/pages/sharks/SharksCalendar.tsx', import.meta.url), 'utf8');
+  assert.ok(cal.includes('useCalendarMarcos'));
+  assert.ok(cal.includes('dayMarcos'));
+  assert.ok(cal.includes("'lead_cadastrado'"));
+});
