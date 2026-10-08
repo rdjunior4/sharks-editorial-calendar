@@ -19,6 +19,8 @@ import Button from '@/components/ui/Button';
 import Tabs from '@/components/ui/Tabs';
 import { useEditorial } from '@/hooks/useEditorial';
 import { useStrategicDates } from '@/hooks/useStrategicDates';
+import { useCalendarMarcos, updateMarcoStatus, type CalendarMarco } from '@/hooks/usePartners';
+import Modal from '@/components/ui/Modal';
 import { useActiveCampaigns } from '@/hooks/useCampaigns';
 import { ACTION_STATUSES, ACTION_STATUS_DOT_CLASSES } from '@/lib/constants';
 import { ChevronLeft, ChevronRight, Calendar, Plus, Wand2, RefreshCw } from 'lucide-react';
@@ -110,12 +112,15 @@ interface SharksCalendarProps {
 export default function SharksCalendar({ initialView = 'month', environment }: SharksCalendarProps) {
   const { isMobile } = useBreakpoint();
   const { isAdmin } = useAuth();
+  const envForMarcos = (environment ?? 'sharks_company') as 'sharks_company' | 'estrategos';
+  const { marcos } = useCalendarMarcos(envForMarcos);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarViewType>(isMobile ? 'month' : initialView);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [selectedMarco, setSelectedMarco] = useState<CalendarMarco | null>(null);
   const [editingAction, setEditingAction] = useState<Action | null>(null);
   const [formDefaultDate, setFormDefaultDate] = useState<string | undefined>(undefined);
   const [draggedAction, setDraggedAction] = useState<Action | null>(null);
@@ -359,6 +364,9 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                 // Datas estratégicas deste dia
                 const dayStrategic = strategicDates.filter(s => s.date === dateStr);
 
+                // Marcos do calendário (parceiros + leads, migration 076)
+                const dayMarcos = marcos.filter(m => m.event_date === dateStr && m.status !== 'canceled');
+
                 return (
                   <DroppableCell
                     key={i}
@@ -397,6 +405,30 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                             <span className="text-[8px] text-amber-600 font-medium truncate">{s.title}</span>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {/* Marcos: reuniões/ações de parceiros + leads novos */}
+                    {dayMarcos.length > 0 && (
+                      <div className="flex flex-col gap-0.5 mb-1">
+                        {dayMarcos.slice(0, 3).map(m => (
+                          <button
+                            key={m.id}
+                            onClick={(e) => { e.stopPropagation(); setSelectedMarco(m); }}
+                            className={cn(
+                              'px-1 py-0.5 rounded border text-left transition-colors',
+                              m.kind === 'lead_cadastrado'
+                                ? 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                : 'bg-violet-50 border-violet-200 hover:bg-violet-100',
+                              m.status === 'done' && 'opacity-60 line-through',
+                            )}
+                            title={`${m.title}${m.event_time ? ` · ${m.event_time.slice(0, 5)}` : ''}`}
+                          >
+                            <span className={cn('text-[8px] font-medium truncate block', m.kind === 'lead_cadastrado' ? 'text-gray-500' : 'text-violet-700')}>
+                              {m.event_time ? `${m.event_time.slice(0, 5)} ` : ''}{m.title}
+                            </span>
+                          </button>
+                        ))}
+                        {dayMarcos.length > 3 && <p className="text-[8px] text-gray-400 leading-none">+{dayMarcos.length - 3} marcos</p>}
                       </div>
                     )}
                     {/* Faixa de campanha: continua entre dias, com label no inicio */}
@@ -721,6 +753,37 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
           activeCampaigns={activeCampaigns}
         />
       )}
+
+      {/* Detalhe do marco */}
+      <Modal isOpen={!!selectedMarco} onClose={() => setSelectedMarco(null)} title="Marco da agenda" size="sm">
+        {selectedMarco && (
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium text-gray-400">
+                {selectedMarco.kind === 'reuniao_parceiro' ? '🤝 Reunião com parceiro' : selectedMarco.kind === 'acao_parceiro' ? '✨ Ação com parceiro' : '🎯 Marco de lead'}
+              </p>
+              <p className="text-sm font-semibold text-gray-900 mt-0.5">{selectedMarco.title}</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              {new Date(`${selectedMarco.event_date}T${selectedMarco.event_time ?? '00:00'}`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}
+              {selectedMarco.event_time ? ` às ${selectedMarco.event_time.slice(0, 5)}` : ''}
+            </p>
+            {selectedMarco.partner?.name && <p className="text-sm text-gray-600">Parceiro: <strong>{selectedMarco.partner.name}</strong></p>}
+            {selectedMarco.responsible?.full_name && <p className="text-sm text-gray-600">Responsável: {selectedMarco.responsible.full_name}</p>}
+            {selectedMarco.kind !== 'lead_cadastrado' && selectedMarco.status === 'planned' && (
+              <div className="flex gap-2 pt-2 border-t border-gray-100">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => { try { await updateMarcoStatus(selectedMarco.id, 'canceled'); toast.success('Marco cancelado'); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); } finally { setSelectedMarco(null); } }}
+                >
+                  Cancelar marco
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

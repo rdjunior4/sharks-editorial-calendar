@@ -21,6 +21,7 @@ import {
   Telescope,
   Bot,
   MessagesSquare,
+  Handshake,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -65,6 +66,7 @@ export const SHARKS_NAV: NavSection[] = [
     items: [
       { icon: Target, label: 'CRM', path: '/sharks/crm' },
       { icon: Telescope, label: 'Prospecção IA', path: '/sharks/prospeccao' },
+      { icon: Handshake, label: 'Parceiros', path: '/sharks/parceiros' },
       { icon: Users, label: 'Clientes', path: '/sharks/clients' },
     ],
   },
@@ -121,6 +123,7 @@ export const ESTRATEGOS_NAV: NavSection[] = [
       { icon: Target, label: 'CRM', path: '/estrategos/crm' },
       { icon: Telescope, label: 'Prospecção IA', path: '/estrategos/prospeccao' },
       { icon: Package, label: 'Produtos', path: '/estrategos/products' },
+      { icon: Handshake, label: 'Parceiros', path: '/estrategos/parceiros' },
       { icon: Users, label: 'Clientes', path: '/estrategos/clients', adminOnly: true },
     ],
   },

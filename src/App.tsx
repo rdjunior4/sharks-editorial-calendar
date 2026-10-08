@@ -90,6 +90,8 @@ const EstrategosImplementations = lazyPage(() => import('@/pages/estrategos/Estr
 const EstrategosCRM = lazyPage(() => import('@/pages/estrategos/EstrategosCRM'));
 const EstrategosProspecting = lazyPage(() => import('@/pages/estrategos/EstrategosProspecting'));
 const EstrategosProducts = lazyPage(() => import('@/pages/estrategos/EstrategosProducts'));
+const SharksPartners = lazyPage(() => import('@/pages/sharks/SharksPartners'));
+const EstrategosPartners = lazyPage(() => import('@/pages/estrategos/EstrategosPartners'));
 const InstagramCallback = lazyPage(() => import('@/pages/instagram/InstagramCallback'));
 
 function PageFallback() {
@@ -202,6 +204,7 @@ function AppRoutes() {
         <Route path="/sharks/integrations" element={<SharksLayout><SharksIntegrations /></SharksLayout>} />
         <Route path="/sharks/team" element={<SharksLayout><SharksTeam /></SharksLayout>} />
         <Route path="/sharks/products" element={<SharksLayout><SharksProducts /></SharksLayout>} />
+        <Route path="/sharks/parceiros" element={<SharksLayout><SharksPartners /></SharksLayout>} />
         <Route path="/sharks/access-requests" element={<SharksLayout><SharksAccessRequests /></SharksLayout>} />
         <Route path="/sharks/settings" element={<SharksLayout><SharksSettings /></SharksLayout>} />
 
@@ -228,6 +231,7 @@ function AppRoutes() {
         <Route path="/estrategos/prospeccao/agente" element={<Navigate to="/estrategos/prospeccao" replace />} />
         <Route path="/estrategos/abordagens" element={<Navigate to="/estrategos/prospeccao" replace />} />
         <Route path="/estrategos/products" element={<EstrategosLayout><EstrategosProducts /></EstrategosLayout>} />
+        <Route path="/estrategos/parceiros" element={<EstrategosLayout><EstrategosPartners /></EstrategosLayout>} />
 
         {/* Legal (público, exigência OAuth Google) */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
