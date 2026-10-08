@@ -268,7 +268,7 @@ export function parseGlmDraft(text: string): ApproachDraft {
   return { subject: null, message: clean };
 }
 
-export class GlmProvider implements GenerativeAI {
+export class GlmProvider implements GenerativeAI, GenerativeChatAI {
   readonly name = 'glm';
   private apiKey: string;
   private model: string;
@@ -278,6 +278,45 @@ export class GlmProvider implements GenerativeAI {
     this.apiKey = apiKey;
     this.model = model || GLM_DEFAULT_MODEL;
     this.baseUrl = (baseUrl || GLM_DEFAULT_BASE).replace(/\/$/, '');
+  }
+
+  /** Resposta de conversa contínua (WhatsApp/Instagram) */
+  async generateConversation(input: ConversationInput): Promise<ConversationReply> {
+    const products = input.products.length > 0 ? input.products.join(', ') : 'nossos serviços';
+    const assetsCtx = buildAssetsContext(input.assets, 700);
+    const userPrompt = [
+      input.lead.name ? `Lead: ${input.lead.name}` : '',
+      input.lead.segment ? `Segmento: ${input.lead.segment}` : '',
+      `Produtos relevantes: ${products}`,
+      input.icpDescription ? `Público-alvo: ${input.icpDescription.slice(0, 300)}` : '',
+      assetsCtx ? `Material disponível (cite se fizer sentido, sem inventar):\n${assetsCtx}` : '',
+      '',
+      'Conversa recente (da mais antiga para a mais nova):',
+      (input.conversationHistory ?? []).slice(-6).join('\n') || '(início da conversa)',
+      '',
+      `Mensagem do lead agora: ${input.incomingMessage.slice(0, 500)}`,
+      'Responda (máximo 80 palavras).',
+    ].filter(Boolean).join('\n');
+
+    const res = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.model,
+        temperature: 0.7,
+        max_tokens: 512,
+        thinking: { type: 'disabled' },
+        messages: [
+          { role: 'system', content: buildGlmConversationPrompt(input.personality, input.campaignName) },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`GLM falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const text = body.choices?.[0]?.message?.content?.trim() ?? '';
+    if (!text) throw new Error('GLM respondeu vazio');
+    return { message: text };
   }
 
   async generateApproach(input: ApproachInput): Promise<ApproachDraft> {
@@ -336,6 +375,61 @@ export class MockGenerativeAI implements GenerativeAI {
   }
 }
 
+/* ─── Conversa contínua (WH-1): responder mensagem do prospect ─── */
+export interface ConversationInput {
+  lead: { name: string; segment?: string | null; location?: string | null; company_size?: string | null; notes?: string | null };
+  campaignName?: string;
+  products: string[];
+  personality: AgentPersonality;
+  icpDescription?: string | null;
+  assets?: string[];
+  /** Histórico recente, um item por mensagem ("recebida: ..." / "enviada: ...") */
+  conversationHistory?: string[];
+  incomingMessage: string;
+}
+
+export function buildGlmConversationPrompt(personality: AgentPersonality, campaignName?: string): string {
+  const tone = personality.tone === 'formal'
+    ? 'Tom formal e profissional'
+    : personality.tone === 'direto'
+    ? 'Tom direto e objetivo'
+    : 'Tom amigável e próximo';
+  return [
+    `Você é ${personality.agent_name ?? 'um agente comercial'}, ${tone}, conversando em ${personality.language ?? 'pt-BR'} no WhatsApp com um lead.`,
+    personality.persona ? `Persona: ${personality.persona}` : '',
+    `Contexto: conversa de qualificação da campanha "${campaignName ?? 'prospecção'}".`,
+    personality.greeting_style ? `Estilo de abertura quando for a primeira resposta: ${personality.greeting_style}.` : '',
+    personality.brand_voice_rules ? `Regras de voz: ${personality.brand_voice_rules}` : '',
+    'Responda à ÚLTIMA mensagem do lead de forma natural, curta (máximo 80 palavras), sem placeholders entre colchetes e sem repetir o que já foi dito.',
+    'Se faz sentido, finalize com UMA pergunta que avance a conversa (ex.: melhor dia/horário para conversar).',
+    personality.signature ? `Assine apenas se for apropriado: ${personality.signature}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+export interface ConversationReply {
+  message: string;
+}
+
+export interface GenerativeChatAI {
+  readonly name: string;
+  generateConversation(input: ConversationInput): Promise<ConversationReply>;
+}
+
+export class MockGenerativeChat implements GenerativeChatAI {
+  readonly name = 'mock';
+
+  async generateConversation(input: ConversationInput): Promise<ConversationReply> {
+    return {
+      message: `Olá! Consolidamos sua mensagem — pode falar um pouco mais sobre o desafio de vocês? (resposta mock; configure GLM_API_KEY para conversa real)`,
+    };
+  }
+}
+
+/* ─── Conversa real no GLM (mesma key/estrutura dos rascunhos) ─── */
+export function glmChatOk(): boolean {
+  return !!env('GLM_API_KEY');
+}
+
 /* ─── Factories (Deno env; guard para testes em node) ─── */
 function env(k: string): string | undefined {
   const d = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
@@ -356,6 +450,12 @@ export function getGenerativeAI(): GenerativeAI {
   const key = env('GLM_API_KEY');
   if (key) return new GlmProvider(key, env('GLM_MODEL'), env('GLM_BASE_URL'));
   return new MockGenerativeAI();
+}
+
+export function getGenerativeChatAI(): GenerativeChatAI {
+  const key = env('GLM_API_KEY');
+  if (key) return new GlmProvider(key, env('GLM_MODEL'), env('GLM_BASE_URL'));
+  return new MockGenerativeChat();
 }
 
 export function hasRealGenerative(): boolean {

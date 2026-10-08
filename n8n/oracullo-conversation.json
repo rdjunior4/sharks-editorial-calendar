@@ -1,0 +1,291 @@
+{
+    "name":  "Oracullo Conversation WH1",
+    "nodes":  [
+                  {
+                      "parameters":  {
+                                         "httpMethod":  "POST",
+                                         "path":  "oracullo-conversation",
+                                         "responseMode":  "onReceived",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000001",
+                      "name":  "Evolution Webhook",
+                      "type":  "n8n-nodes-base.webhook",
+                      "typeVersion":  2,
+                      "position":  [
+                                       220,
+                                       300
+                                   ],
+                      "webhookId":  "bbbb1111-0000-4000-8000-000000000001"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "// Normaliza a mensagem do WhatsApp (Evolution v2): grupo=invalida, extrai telefone/texto/mid\nconst evt = $json.body ?? {};\nconst data = evt.data ?? {};\nconst remoteJid = String(data.key?.remoteJid ?? \u0027\u0027);\nconst isGroup = remoteJid.endsWith(\u0027@g.us\u0027);\nconst phone = remoteJid.replace(/@s\\.whatsapp\\.net|@g\\.us/g, \u0027\u0027).replace(/\\D/g, \u0027\u0027);\nconst text = String(data.message?.conversation ?? data.message?.extendedTextMessage?.text ?? data.message?.imageMessage?.caption ?? \u0027\u0027).trim();\nreturn [{ json: { isGroup, phone, text, mid: String(data.key?.id ?? \u0027\u0027), instance: String(evt.instance ?? \u0027\u0027), pushName: String(data.pushName ?? \u0027\u0027) } };]"
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000002",
+                      "name":  "Normalizar Mensagem",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       440,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "version":  2
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "leftValue":  "={{ $json.isGroup }}",
+                                                                                   "rightValue":  "={{ false }}",
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "equals"
+                                                                                                }
+                                                                               },
+                                                                               {
+                                                                                   "leftValue":  "={{ $json.text.length \u003e 0 }}",
+                                                                                   "rightValue":  "={{ true }}",
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "equals"
+                                                                                                }
+                                                                               },
+                                                                               {
+                                                                                   "leftValue":  "={{ $json.phone.length \u003e= 10 }}",
+                                                                                   "rightValue":  "={{ true }}",
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "equals"
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000003",
+                      "name":  "Mensagem valida?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2,
+                      "position":  [
+                                       660,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ \u0027https://cyumczehpiiarwqrpgnu.supabase.co/functions/v1/prospecting-conversation\u0027 }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-worker-secret",
+                                                                                         "value":  "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ action: \u0027reply\u0027, environment: ($(\u0027Normalizar Mensagem\u0027).first().json.instance.toLowerCase().includes(\u0027estrategos\u0027) ? \u0027estrategos\u0027 : \u0027sharks_company\u0027), channel: \u0027whatsapp\u0027, contact: { phone: $(\u0027Normalizar Mensagem\u0027).first().json.phone }, text: $(\u0027Normalizar Mensagem\u0027).first().json.text, mid: $(\u0027Normalizar Mensagem\u0027).first().json.mid }) }}",
+                                         "options":  {
+                                                         "timeout":  60000
+                                                     }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000004",
+                      "name":  "Cerebro da Conversa (Edge)",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       880,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "// Prepara o envio da resposta: audio (audio_url) ou texto\nconst brain = $json;\nif (!brain.ok || !brain.reply) { throw new Error(\u0027Sem resposta do cerebro\u0027); }\nconst webhook = $(\u0027Evolution Webhook\u0027).first().json;\nconst data = webhook.data ?? {};\nconst number = String(data.key?.remoteJid ?? \u0027\u0027).replace(/@s\\.whatsapp\\.net|@g\\.us/g, \u0027\u0027).replace(/\\D/g, \u0027\u0027);\nconst base = { number };\nif (brain.audio_url) {\n  const res = await fetch(String(brain.audio_url));\n  if (res.ok) {\n    const buf = Buffer.from(await res.arrayBuffer());\n    return [{ json: { ...base, mode: \u0027audio\u0027, audio: \u0027data:audio/mpeg;base64,\u0027 + buf.toString(\u0027base64\u0027), reply: brain.reply, lead_id: brain.lead_id } }];\n  }\n}\nreturn [{ json: { ...base, mode: \u0027text\u0027, reply: brain.reply, lead_id: brain.lead_id } };]"
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000005",
+                      "name":  "Preparar Resposta",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1100,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "=COLE_EVO_AQUI/message/{{ $json.mode === \u0027audio\u0027 ? \u0027sendAudio\u0027 : \u0027sendText\u0027 }}/COLE_INSTANCIA_AQUI",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "apikey",
+                                                                                         "value":  "COLE_EVO_KEY_AQUI"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify($json.mode === \u0027audio\u0027 ? { number: $json.number, audio: $json.audio } : { number: $json.number, text: $json.reply }) }}",
+                                         "options":  {
+                                                         "timeout":  60000
+                                                     }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000006",
+                      "name":  "Evolution Enviar Resposta",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1320,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ \u0027https://cyumczehpiiarwqrpgnu.supabase.co/functions/v1/prospecting-conversation\u0027 }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-worker-secret",
+                                                                                         "value":  "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ action: \u0027sent\u0027, environment: ($(\u0027Normalizar Mensagem\u0027).first().json.instance.toLowerCase().includes(\u0027estrategos\u0027) ? \u0027estrategos\u0027 : \u0027sharks_company\u0027), lead_id: $(\u0027Preparar Resposta\u0027).first().json.lead_id, text: $(\u0027Preparar Resposta\u0027).first().json.reply }) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000007",
+                      "name":  "Registrar Envio (Edge)",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1540,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ \u0027https://cyumczehpiiarwqrpgnu.supabase.co/functions/v1/prospecting-conversation\u0027 }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-worker-secret",
+                                                                                         "value":  "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ action: \u0027error\u0027, environment: \u0027sharks_company\u0027, text: \u0027Falha no fluxo de conversa: \u0027 + ($json.error ?? \u0027erro desconhecido\u0027) }) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "aaaa1111-0000-4000-8000-000000000008",
+                      "name":  "Callback Diagnostico",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       880,
+                                       520
+                                   ]
+                  }
+              ],
+    "connections":  {
+                        "Evolution Webhook":  {
+                                                  "main":  [
+                                                               {
+                                                                   "node":  "Normalizar Mensagem",
+                                                                   "type":  "main",
+                                                                   "index":  0
+                                                               }
+                                                           ]
+                                              },
+                        "Normalizar Mensagem":  {
+                                                    "main":  [
+                                                                 {
+                                                                     "node":  "Mensagem valida?",
+                                                                     "type":  "main",
+                                                                     "index":  0
+                                                                 }
+                                                             ]
+                                                },
+                        "Mensagem valida?":  {
+                                                 "main":  [
+                                                              [
+                                                                  {
+                                                                      "node":  "Cerebro da Conversa (Edge)",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ],
+                                                              [
+                                                                  {
+                                                                      "node":  "Callback Diagnostico",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ]
+                                                          ]
+                                             },
+                        "Cerebro da Conversa (Edge)":  {
+                                                           "main":  [
+                                                                        {
+                                                                            "node":  "Preparar Resposta",
+                                                                            "type":  "main",
+                                                                            "index":  0
+                                                                        }
+                                                                    ]
+                                                       },
+                        "Preparar Resposta":  {
+                                                  "main":  [
+                                                               {
+                                                                   "node":  "Evolution Enviar Resposta",
+                                                                   "type":  "main",
+                                                                   "index":  0
+                                                               }
+                                                           ]
+                                              },
+                        "Evolution Enviar Resposta":  {
+                                                          "main":  [
+                                                                       {
+                                                                           "node":  "Registrar Envio (Edge)",
+                                                                           "type":  "main",
+                                                                           "index":  0
+                                                                       }
+                                                                   ]
+                                                      }
+                    },
+    "settings":  {
+                     "executionOrder":  "v1"
+                 }
+}
