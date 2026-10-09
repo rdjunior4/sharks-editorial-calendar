@@ -1,19 +1,29 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import AppSidebar from './AppSidebar';
 import TopHeader from './TopHeader';
 import BottomNav from './BottomNav';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { useOverdueSweep } from '@/hooks/useOverdueSweep';
+import { cn } from '@/lib/utils';
 
 interface AppLayoutProps {
   children: ReactNode;
 }
 
+const SIDEBAR_KEY = 'sidebar-collapsed';
+
 export default function AppLayout({ children }: AppLayoutProps) {
   const { user, loading, isSharks } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
+  /** Recolhimento aqui: sidebar E conteúdo leem o MESMO estado — o ml transiciona junto. */
+  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem(SIDEBAR_KEY) === '1');
+  const toggleCollapsed = () => setCollapsed(c => {
+    const next = !c;
+    localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
+    return next;
+  });
+  useEffect(() => { setMobileNavOpen(false); }, [collapsed]);
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -31,8 +41,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="min-h-dvh bg-gray-50 flex flex-col">
-      <AppSidebar open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <div className="lg:ml-[240px] transition-all duration-300 flex flex-col flex-1">
+      <AppSidebar open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+      <div className={cn(
+        'flex flex-col flex-1 transition-[margin] duration-300 ease-in-out',
+        'lg:ml-[240px] lg:will-change-[margin]',
+        collapsed && 'lg:ml-[68px]',
+      )}>
         <TopHeader onOpenMobileNav={() => setMobileNavOpen(true)} />
         <main className="p-4 pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-6 flex-1 flex flex-col">
           <div className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col">
