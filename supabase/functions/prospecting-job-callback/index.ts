@@ -7,6 +7,7 @@
 // ==========================================
 
 import { serviceClient, corsHeaders } from '../_shared/google.ts';
+import { verifyWorker } from '../_shared/auth.ts';
 
 const CORS: Record<string, string> = {};
 function json(status: number, body: unknown) {
@@ -21,12 +22,11 @@ Deno.serve(async req => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
     if (req.method !== 'POST') return json(405, { error: 'Use POST' });
 
-    const workerSecret = Deno.env.get('WORKER_SECRET');
-    if (!workerSecret || req.headers.get('x-worker-secret') !== workerSecret) {
-      return json(401, { error: 'Worker secret invalido' });
-    }
+    const rawBody = await req.text();
+    const auth = await verifyWorker(req, rawBody);
+    if (!auth.ok) return json(auth.status, { error: auth.error });
 
-    const body = await req.json().catch(() => null);
+    const body = (() => { try { return JSON.parse(rawBody); } catch { return null; } })();
     const jobId: string = body?.job_id ?? '';
     const status: string = body?.status ?? '';
     if (!UUID_RE.test(jobId)) return json(400, { error: 'job_id (UUID) obrigatorio' });
@@ -74,6 +74,26 @@ Deno.serve(async req => {
         .update({ prospecting_status: 'contacted', last_contact_at: new Date().toISOString() })
         .eq('id', jrow.lead_id)
         .or('prospecting_status.eq.queued,prospecting_status.eq.qualified');
+    }
+
+    // ─── M4: número sem WhatsApp → descarta o lead (para follow-ups também) ───
+    if (status === 'failed' && jrow.type === 'send_message' && jrow.lead_id) {
+      const errText = String(body?.error ?? '').toLowerCase();
+      const invalidNumber = /número|numero/.test(errText) && /inexistente|não existe|nao existe|inválido|invalido|sem whatsapp/.test(errText)
+        || /not.?exist|invalid.?number|whatsapp.?404|no.?whatsapp/.test(errText)
+        || /\b404\b/.test(errText) && /whatsapp|evolution|mensagem/.test(errText);
+      if (invalidNumber) {
+        await admin
+          .from('crm_leads')
+          .update({ prospecting_status: 'discarded', lost_reason: 'Número sem WhatsApp — descartado pela esteira do agente' })
+          .eq('id', jrow.lead_id);
+        await admin.from('crm_lead_activities').insert({
+          lead_id: jrow.lead_id,
+          type: 'system',
+          content: '📵 Número não existe no WhatsApp — lead descartado e follow-ups interrompidos.',
+        });
+        return json(200, { ok: true, job_id: jobId, status, lead_discarded: true });
+      }
     }
 
     return json(200, { ok: true, job_id: jobId, status });

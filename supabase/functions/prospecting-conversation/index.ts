@@ -13,6 +13,7 @@
 // ==========================================
 
 import { serviceClient, corsHeaders } from '../_shared/google.ts';
+import { verifyWorker } from '../_shared/auth.ts';
 import { getGenerativeChatAI, hasRealGenerative, type CampaignICP, type AgentPersonality, type LeadTemperature, type ConversationAction, type MediaIntent } from '../_shared/prospecting/ai.ts';
 import { getSpeechProvider, hasRealSpeech } from '../_shared/prospecting/speech.ts';
 import { normalizePhone } from '../_shared/prospecting/ingest.ts';
@@ -283,21 +284,88 @@ async function synthesizeReply(
   }
 }
 
+/* ─── Mídia do prospect: transcreve áudio / descreve imagem (M1) ─── */
+
+/** ElevenLabs Speech-to-Text (mesma key da voz). null se sem key/falha. */
+async function transcribeAudioEleven(url: string): Promise<string | null> {
+  const key = Deno.env.get('ELEVENLABS_API_KEY');
+  if (!key) return null;
+  try {
+    const media = await fetch(url);
+    if (!media.ok) {
+      console.error('[conversation] baixar mídia falhou:', media.status);
+      return null;
+    }
+    const buf = await media.arrayBuffer();
+    const fd = new FormData();
+    fd.append('file', new Blob([buf], { type: 'audio/ogg' }), 'audio.ogg');
+    fd.append('model_id', 'scribe_v1');
+    const st = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+      method: 'POST',
+      headers: { 'xi-api-key': key },
+      body: fd,
+    });
+    if (!st.ok) {
+      console.error('[conversation] STT falhou:', st.status, (await st.text()).slice(0, 120));
+      return null;
+    }
+    const jb = await st.json() as { text?: string };
+    return typeof jb.text === 'string' ? jb.text.trim().slice(0, 900) : null;
+  } catch (e) {
+    console.error('[conversation] STT erro:', e);
+    return null;
+  }
+}
+
+/** GLM-4V descreve a imagem do lead. null se sem key/falha. */
+async function describeImageGlm(url: string): Promise<string | null> {
+  const key = Deno.env.get('GLM_API_KEY');
+  if (!key) return null;
+  try {
+    const base = (Deno.env.get('GLM_BASE_URL') ?? 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
+    const model = Deno.env.get('GLM_VISION_MODEL') ?? 'glm-4v-flash';
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        max_tokens: 250,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url } },
+            { type: 'text', text: 'Descreva de forma objetiva esta imagem enviada por um prospect no WhatsApp: o que se vê, texto legível, contexto comercial. Máximo 60 palavras.' },
+          ],
+        }],
+      }),
+    });
+    if (!res.ok) {
+      console.error('[conversation] GLM-4V falhou:', res.status, (await res.text()).slice(0, 120));
+      return null;
+    }
+    const body = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const txt = body.choices?.[0]?.message?.content?.trim();
+    return txt ? txt.slice(0, 500) : null;
+  } catch (e) {
+    console.error('[conversation] GLM-4V erro:', e);
+    return null;
+  }
+}
+
 Deno.serve(async req => {
   Object.assign(CORS, corsHeaders(req));
   try {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
     if (req.method !== 'POST') return json(405, { error: 'Use POST' });
 
-    const workerSecret = Deno.env.get('WORKER_SECRET');
-    const authHeader = req.headers.get('Authorization');
-    if (!workerSecret || req.headers.get('x-worker-secret') !== workerSecret) {
-      return json(401, { error: 'Worker secret invalido' });
-    }
-    void authHeader;
+    const rawBody = await req.text();
+    const auth = await verifyWorker(req, rawBody);
+    if (!auth.ok) return json(auth.status, { error: auth.error });
 
     const admin = serviceClient();
-    const body = (await req.json().catch(() => null)) as
+    const body = (
+      () => { try { return JSON.parse(rawBody || '{}'); } catch { return null; } }
+    )() as
       | {
           action?: 'reply' | 'sent' | 'error';
           environment?: string;
@@ -306,6 +374,7 @@ Deno.serve(async req => {
           mid?: string;
           contact?: { phone?: string; social_instagram?: string };
           lead_id?: string;
+          media?: { kind?: 'audio' | 'image' | 'document' | 'video'; url?: string };
         }
       | null;
     if (!body?.environment || !VALID_ENVS.includes(body.environment)) {
@@ -334,7 +403,29 @@ Deno.serve(async req => {
       return json(200, { ok: true, action: 'error' });
     }
 
-    const text = String(body.text ?? '').slice(0, 1000).trim();
+    let text = String(body.text ?? '').slice(0, 1000).trim();
+    const media = body.media ?? null;
+
+    // ─── Mídia do lead: enriquece o texto do cérebro (M1) ───
+    let mediaNote = '';
+    if (media?.kind === 'audio' && media.url) {
+      const tr = await transcribeAudioEleven(media.url);
+      if (tr) {
+        text = [text, tr].filter(Boolean).join(' ').slice(0, 1000);
+        mediaNote = '[Áudio do lead transcrito]';
+      } else {
+        mediaNote = '[O lead mandou um áudio — transcrição indisponível; seja natural e, se necessário, peça o texto por escrito]';
+      }
+    } else if (media?.kind === 'image' && media.url) {
+      const desc = await describeImageGlm(media.url);
+      mediaNote = desc ? `[Imagem enviada pelo lead: ${desc}]` : '[O lead enviou uma imagem — não descrevível agora; peça detalhes por texto]';
+    } else if (media?.kind === 'document' && media.url) {
+      mediaNote = '[O lead enviou um documento — reinteira implicando que vai analisar e peça o ponto principal por texto]';
+    } else if (media?.kind === 'video' && media.url) {
+      mediaNote = '[O lead enviou um vídeo — reconheça e peça o resumo por texto se necessário]';
+    }
+    if (!text && !mediaNote) mediaNote = '';
+
     const contact = {
       phone: normalizePhone(body.contact?.phone ?? null),
       social_instagram: body.contact?.social_instagram?.replace(/^@/, '') || null,
@@ -351,7 +442,9 @@ Deno.serve(async req => {
     }
     if (mid) await mergeAiData(admin, lead.id, { last_inbound_mid: mid });
 
-    await logActivity(admin, lead.id, 'reply_received', `💬 WhatsApp do prospect: ${text || '(midia)'}`);
+    if (mediaNote) text = [text, mediaNote].filter(Boolean).join(' ').slice(0, 1000);
+    if (!text) text = ' ';
+    await logActivity(admin, lead.id, 'reply_received', `💬 WhatsApp do prospect: ${text.trim()}`);
     if (['discovered', 'qualified', 'queued', 'contacted'].includes(lead.prospecting_status ?? '')) {
       await admin.from('crm_leads').update({ prospecting_status: 'replied' }).eq('id', lead.id);
     }
@@ -423,9 +516,9 @@ Deno.serve(async req => {
     const audioUrl = await synthesizeReply(admin, lead, result.message, ctx.personality, environment);
 
     // ── Mídia rica (media_intent → asset do ambiente) ──
-    let media: { url: string; title: string } | null = null;
+    let mediaAsset: { url: string; title: string } | null = null;
     if (result.media_intent) {
-      media = await pickMediaAsset(admin, environment, ctx.productIdSet, result.media_intent);
+      mediaAsset = await pickMediaAsset(admin, environment, ctx.productIdSet, result.media_intent);
     }
 
     // ── Escalonamento / agendamento ──
@@ -483,8 +576,8 @@ Deno.serve(async req => {
       mode: 'ai',
       reply: result.message,
       audio_url: audioUrl,
-      media_url: media?.url ?? null,
-      media_title: media?.title ?? null,
+      media_url: mediaAsset?.url ?? null,
+      media_title: mediaAsset?.title ?? null,
       action: convAction,
       escalated,
       scheduled,

@@ -94,6 +94,24 @@ export function appLoginUrl(): string {
   return `${Deno.env.get('APP_URL') ?? 'https://agenda.grupooracullo.com'}/login`;
 }
 
+/* ---------- e-mail de prospecção (canal email do agente) ---------- */
+
+export function prospectionEmail(params: { leadName: string; subject: string | null; message: string }): { subject: string; html: string } {
+  const paragraphs = params.message
+    .split(/\n{1,}/)
+    .filter(l => l.trim())
+    .map(l => `<p style="color:#334155;font-size:14px;line-height:1.7;margin:0 0 12px;">${esc(l.trim())}</p>`)
+    .join('');
+  const body = `
+    <div style="background:#f8fafc;border-radius:8px;padding:18px 20px;border:1px solid #eceff5;">
+      ${paragraphs || '<p></p>'}
+    </div>`;
+  return {
+    subject: params.subject?.trim() || 'Uma ideia para o seu negócio',
+    html: layout(`Olá, ${esc(params.leadName)}`, body),
+  };
+}
+
 // ---------- aprovacao de acesso ----------
 
 export function approvedAccessEmail(params: {

@@ -339,13 +339,15 @@ export function useInstagramConnection(environment: ProspectingEnvironment | nul
   decision_ai: boolean;
   generative_ai: boolean;
   google_places: boolean;
+  firecrawl: boolean;
+  resend: boolean;
   meta: boolean;
   n8n: boolean;
   speech: boolean;
 }
 
 const EMPTY_CHANNELS: ChannelStatus = {
-  decision_ai: false, generative_ai: false, google_places: false, meta: false, n8n: false, speech: false,
+  decision_ai: false, generative_ai: false, google_places: false, firecrawl: false, resend: false, meta: false, n8n: false, speech: false,
 };
 
 export function useChannelStatus(enabled: boolean) {

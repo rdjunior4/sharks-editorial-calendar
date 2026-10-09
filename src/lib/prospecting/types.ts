@@ -72,14 +72,21 @@ export interface ProspectingJob {
   campaign?: { id: string; name: string } | null;
 }
 
-export const PROSPECTING_CHANNELS = ['email', 'whatsapp', 'instagram', 'voice'] as const;
-export const CHANNEL_META: Record<ProspectingChannel, { label: string }> = {
-  email:     { label: 'E-mail' },
-  whatsapp:  { label: 'WhatsApp' },
-  instagram: { label: 'Instagram' },
-  voice:     { label: 'Voz' },
+export const PROSPECTING_CHANNELS = ['whatsapp', 'instagram', 'email'] as const;
+export const CHANNEL_META: Record<ProspectingChannel, { label: string; hint: string }> = {
+  whatsapp:  { label: 'WhatsApp',  hint: 'Via Evolution — precisa de telefone no lead' },
+  instagram: { label: 'Instagram', hint: 'DM oficial — lead precisa ter interagido (janela 24h)' },
+  email:     { label: 'E-mail',    hint: 'Via Resend — precisa de e-mail no lead' },
 };
 export type ProspectingChannel = typeof PROSPECTING_CHANNELS[number];
+
+export type DiscoveryProvider = 'auto' | 'places' | 'firecrawl';
+export const DISCOVERY_PROVIDERS: DiscoveryProvider[] = ['auto', 'places', 'firecrawl'];
+export const DISCOVERY_META: Record<DiscoveryProvider, { label: string; hint: string }> = {
+  auto:      { label: 'Auto',       hint: 'Google Places primeiro; cai para Firecrawl se falhar' },
+  places:    { label: 'Google Places', hint: 'Billing do Google — mais direto' },
+  firecrawl: { label: 'Firecrawl',  hint: 'Busca na web + leitura dos sites — sem Places' },
+};
 
 export const AUTOMATION_LEVELS = ['assisted', 'semi_auto', 'auto'] as const;
 export type AutomationLevel = typeof AUTOMATION_LEVELS[number];
@@ -100,10 +107,11 @@ export interface ProspectingCampaign {
   segment: string | null;
   location: string | null;
   company_size: string | null;
-  icp_description: string | null;
+ icp_description: string | null;
   trigger_keywords: string[] | null;
   target_count: number;
   channels: string[];
+  discovery_provider: DiscoveryProvider;
   automation_level: AutomationLevel;
   status: CampaignStatus;
   created_by: string | null;
@@ -125,6 +133,7 @@ export interface CampaignPayload {
   trigger_keywords?: string[];
   target_count: number;
   channels: string[];
+  discovery_provider: DiscoveryProvider;
   automation_level: AutomationLevel;
   assigned_to: string | null;
   product_ids?: string[];

@@ -62,7 +62,9 @@ export default function AgentSection({ environment, editable = false }: AgentPag
   const channelItems = [
     { key: 'meta' as const, label: 'Meta (Lead Ads/Interações)' },
     { key: 'google_places' as const, label: 'Google Places (Discovery)' },
+    { key: 'firecrawl' as const, label: 'Firecrawl (busca web)' },
     { key: 'n8n' as const, label: 'n8n (Orquestração)' },
+    { key: 'resend' as const, label: 'Resend (e-mail)' },
     { key: 'decision_ai' as const, label: 'JEV — decisão' },
     { key: 'generative_ai' as const, label: 'GLM — geração' },
     { key: 'speech' as const, label: 'Voz (ElevenLabs — áudio)' },

@@ -1,5 +1,5 @@
 {
-  "name": "Oracullo Conversation WH1",
+  "name": "Oracullo Conversation WH2",
   "nodes": [
     {
       "parameters": {
@@ -8,18 +8,18 @@
         "responseMode": "onReceived",
         "options": {}
       },
-      "id": "aaaa1111-0000-4000-8000-000000000001",
+      "id": "b1aaaa11-0000-4000-8000-000000000001",
       "name": "Evolution Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [220, 300],
-      "webhookId": "bbbb1111-0000-4000-8000-000000000001"
+      "webhookId": "b1bbbb11-0000-4000-8000-000000000001"
     },
     {
       "parameters": {
-        "jsCode": "// Normaliza a mensagem do WhatsApp (Evolution v2): grupo=invalida, extrai telefone/texto/mid\nconst evt = $json.body ?? {};\nconst data = evt.data ?? {};\nconst remoteJid = String(data.key?.remoteJid ?? '');\nconst isGroup = remoteJid.endsWith('@g.us');\nconst phone = remoteJid.replace(/@s\\.whatsapp\\.net|@g\\.us/g, '').replace(/\\D/g, '');\nconst text = String(data.message?.conversation ?? data.message?.extendedTextMessage?.text ?? data.message?.imageMessage?.caption ?? '').trim();\nreturn [{ json: { isGroup, phone, text, mid: String(data.key?.id ?? ''), instance: String(evt.instance ?? ''), pushName: String(data.pushName ?? '') } };]"
+        "jsCode": "// Normaliza a mensagem do WhatsApp (Evolution v2): grupo=invalida, extrai telefone/texto/mid\n// e a mídia (áudio/imagem/documento/vídeo → URL do Evolution) para o cérebro Edge\nconst evt = $json.body ?? {};\nconst data = evt.data ?? {};\nconst remoteJid = String(data.key?.remoteJid ?? '');\nconst isGroup = remoteJid.endsWith('@g.us');\nconst phone = remoteJid.replace(/@s\\.whatsapp\\.net|@g\\.us/g, '').replace(/\\D/g, '');\nconst msg = data.message ?? {};\nlet text = String(msg.conversation ?? msg.extendedTextMessage?.text ?? '').trim();\nlet media = null;\nconst kindFor = (m) => {\n  if (m?.audioMessage?.url) return { kind: 'audio', url: String(m.audioMessage.url) };\n  if (m?.imageMessage?.url) return { kind: 'image', url: String(m.imageMessage.url) };\n  if (m?.documentMessage?.url) return { kind: 'document', url: String(m.documentMessage.url) };\n  if (m?.videoMessage?.url) return { kind: 'video', url: String(m.videoMessage.url) };\n  return null;\n};\nfor (const k of Object.keys(msg)) {\n  const m = kindFor(msg[k] ?? {});\n  if (m) { media = m; break; }\n}\ntext = text || String(msg.imageMessage?.caption ?? msg.documentMessage?.caption ?? msg.videoMessage?.caption ?? '').trim();\nreturn [{ json: { isGroup, phone, text, media, mid: String(data.key?.id ?? ''), instance: String(evt.instance ?? ''), pushName: String(data.pushName ?? '') } };]"
       },
-      "id": "aaaa1111-0000-4000-8000-000000000002",
+      "id": "b1aaaa11-0000-4000-8000-000000000002",
       "name": "Normalizar Mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -28,10 +28,7 @@
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "version": 2
-          },
+          "options": { "caseSensitive": true, "version": 2 },
           "conditions": [
             {
               "leftValue": "={{ $json.isGroup }}",
@@ -39,7 +36,7 @@
               "operator": { "type": "boolean", "operation": "equals" }
             },
             {
-              "leftValue": "={{ $json.text.length > 0 }}",
+              "leftValue": "={{ ($json.text.length > 0) || !!$json.media }}",
               "rightValue": "={{ true }}",
               "operator": { "type": "boolean", "operation": "equals" }
             },
@@ -52,11 +49,35 @@
           "combinator": "and"
         }
       },
-      "id": "aaaa1111-0000-4000-8000-000000000003",
+      "id": "b1aaaa11-0000-4000-8000-000000000003",
       "name": "Mensagem valida?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o payload do cérebro + o timestamp para a assinatura (janela 5min)\nconst n = $('Normalizar Mensagem').first().json;\nconst environment = String(n.instance ?? '').toLowerCase().includes('estrategos') ? 'estrategos' : 'sharks_company';\nconst payload = {\n  action: 'reply',\n  environment,\n  channel: 'whatsapp',\n  contact: { phone: n.phone },\n  text: n.text || '',\n  mid: n.mid || '',\n  ...(n.media ? { media: n.media } : {}),\n};\nconst payloadStr = JSON.stringify(payload);\nreturn [{ json: { ts: Math.floor(Date.now() / 1000), payloadStr } }];"
+      },
+      "id": "b1aaaa11-0000-4000-8000-00000000000c",
+      "name": "Preparar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "secret": "0b60e31b950462dfe9f938072a0ad15802b80f0ea7b02fa5edde6267914dd84a",
+        "value": "={{ $json.ts + '.' + $json.payloadStr }}",
+        "encoding": "base64"
+      },
+      "id": "b1aaaa11-0000-4000-8000-00000000000d",
+      "name": "Assinar Cerebro",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [1100, 300]
     },
     {
       "parameters": {
@@ -66,37 +87,35 @@
         "headerParameters": {
           "parameters": [
             { "name": "Content-Type", "value": "application/json" },
-            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" }
+            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" },
+            { "name": "x-signature", "value": "=t={{ $('Preparar Payload').item.json.ts }},v={{ $json.data }}" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'reply', environment: ($('Normalizar Mensagem').first().json.instance.toLowerCase().includes('estrategos') ? 'estrategos' : 'sharks_company'), channel: 'whatsapp', contact: { phone: $('Normalizar Mensagem').first().json.phone }, text: $('Normalizar Mensagem').first().json.text, mid: $('Normalizar Mensagem').first().json.mid }) }}",
+        "jsonBody": "={{ $('Preparar Payload').item.json.payloadStr }}",
         "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
       },
-      "id": "aaaa1111-0000-4000-8000-000000000004",
+      "id": "b1aaaa11-0000-4000-8000-000000000004",
       "name": "Cerebro da Conversa (Edge)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 300]
+      "position": [1320, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Prepara o envio da resposta conforme o cerebro (JSON estruturado):\n//   mode human / rate-limited / erro → não envia (rota 'Humano Assumiu')\n//   media_url → baixa e envia via sendMedia (imagem/documento)\n//   audio_url → baixa e envia via sendAudio\n//   só texto → sendText\nconst brain = $json;\nif (!brain.ok || brain.mode === 'human' || brain.action === 'skip') {\n  return [{ json: { skip: true, lead_id: brain.lead_id ?? null, reason: brain.error ?? 'modo humano/sem cerebro' } }];\n}\nif (!brain.reply && !brain.media_url && !brain.audio_url) { throw new Error('Sem resposta do cerebro'); }\nconst webhook = $('Evolution Webhook').first().json;\nconst data = webhook.data ?? {};\nconst number = String(data.key?.remoteJid ?? '').replace(/@s\\.whatsapp\\.net|@g\\.us/g, '').replace(/\\D/g, '');\nif (brain.media_url) {\n  const res = await fetch(String(brain.media_url));\n  if (res.ok) {\n    const buf = Buffer.from(await res.arrayBuffer());\n    const ext = (String(brain.media_url).split('?')[0].split('.').pop() ?? '').toLowerCase();\n    const isImage = ['png','jpg','jpeg','webp'].includes(ext);\n    const mime = isImage ? 'image/' + (ext === 'jpeg' ? 'jpeg' : ext) : 'application/pdf';\n    return [{ json: { number, mode: 'media', mediatype: isImage ? 'image' : 'document', mimeType: mime, media: 'data:' + mime + ';base64,' + buf.toString('base64'), reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];\n  }\n  console.error('[preparar] media falhou:', res.status);\n}\nif (brain.audio_url) {\n  const res = await fetch(String(brain.audio_url));\n  if (res.ok) {\n    const buf = Buffer.from(await res.arrayBuffer());\n    return [{ json: { number, mode: 'audio', audio: 'data:audio/mpeg;base64,' + buf.toString('base64'), reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];\n  }\n}\nreturn [{ json: { number, mode: 'text', reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];"
+        "jsCode": "// Prepara o envio da resposta conforme o cerebro (JSON estruturado):\nconst brain = $json;\nif (!brain.ok || brain.mode === 'human' || brain.action === 'skip') {\n  return [{ json: { skip: true, lead_id: brain.lead_id ?? null, reason: brain.error ?? 'modo humano/sem cerebro' } }];\n}\nif (!brain.reply && !brain.media_url && !brain.audio_url) { throw new Error('Sem resposta do cerebro'); }\nconst webhook = $('Evolution Webhook').first().json;\nconst data = webhook.data ?? {};\nconst number = String(data.key?.remoteJid ?? '').replace(/@s\\.whatsapp\\.net|@g\\.us/g, '').replace(/\\D/g, '');\nif (brain.media_url) {\n  const res = await fetch(String(brain.media_url));\n  if (res.ok) {\n    const buf = Buffer.from(await res.arrayBuffer());\n    const ext = (String(brain.media_url).split('?')[0].split('.').pop() ?? '').toLowerCase();\n    const isImage = ['png','jpg','jpeg','webp'].includes(ext);\n    const mime = isImage ? 'image/' + (ext === 'jpeg' ? 'jpeg' : ext) : 'application/pdf';\n    return [{ json: { number, mode: 'media', mediatype: isImage ? 'image' : 'document', mimeType: mime, media: 'data:' + mime + ';base64,' + buf.toString('base64'), reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];\n  }\n  console.error('[preparar] media falhou:', res.status);\n}\nif (brain.audio_url) {\n  const res = await fetch(String(brain.audio_url));\n  if (res.ok) {\n    const buf = Buffer.from(await res.arrayBuffer());\n    return [{ json: { number, mode: 'audio', audio: 'data:audio/mpeg;base64,' + buf.toString('base64'), reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];\n  }\n}\nreturn [{ json: { number, mode: 'text', reply: String(brain.reply ?? ''), lead_id: brain.lead_id } }];"
       },
-      "id": "aaaa1111-0000-4000-8000-000000000005",
+      "id": "b1aaaa11-0000-4000-8000-000000000005",
       "name": "Preparar Resposta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, 300]
+      "position": [1540, 300]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "version": 2
-          },
+          "options": { "caseSensitive": true, "version": 2 },
           "conditions": [
             {
               "leftValue": "={{ $json.skip }}",
@@ -107,19 +126,19 @@
           "combinator": "and"
         }
       },
-      "id": "aaaa1111-0000-4000-8000-00000000000a",
+      "id": "b1aaaa11-0000-4000-8000-00000000000a",
       "name": "IA respondeu?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1320, 300]
+      "position": [1760, 300]
     },
     {
       "parameters": {},
-      "id": "aaaa1111-0000-4000-8000-00000000000b",
+      "id": "b1aaaa11-0000-4000-8000-00000000000b",
       "name": "Humano Assumiu (sem envio IA)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1540, 520]
+      "position": [1980, 520]
     },
     {
       "parameters": {
@@ -136,11 +155,35 @@
         "jsonBody": "={{ JSON.stringify($json.mode === 'audio' ? { number: $json.number, audio: $json.audio } : $json.mode === 'media' ? { number: $json.number, mediatype: $json.mediatype, mimetype: $json.mimeType, media: $json.media } : { number: $json.number, text: $json.reply }) }}",
         "options": { "timeout": 60000 }
       },
-      "id": "aaaa1111-0000-4000-8000-000000000006",
+      "id": "b1aaaa11-0000-4000-8000-000000000006",
       "name": "Evolution Enviar Resposta",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 300]
+      "position": [1980, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload do registro de envio + timestamp p/ assinatura\nconst env = $('Cerebro da Conversa (Edge)').first().json.environment ?? 'sharks_company';\nconst payload = {\n  action: 'sent',\n  environment: String(env).includes('estrategos') ? 'estrategos' : 'sharks_company',\n  lead_id: $('Preparar Resposta').first().json.lead_id,\n  text: $('Preparar Resposta').first().json.reply ?? '',\n};\nconst payloadStr = JSON.stringify(payload);\nreturn [{ json: { ts: Math.floor(Date.now() / 1000), payloadStr } }];"
+      },
+      "id": "b1aaaa11-0000-4000-8000-00000000000e",
+      "name": "Payload Sent + TS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 300]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "secret": "0b60e31b950462dfe9f938072a0ad15802b80f0ea7b02fa5edde6267914dd84a",
+        "value": "={{ $json.ts + '.' + $json.payloadStr }}",
+        "encoding": "base64"
+      },
+      "id": "b1aaaa11-0000-4000-8000-00000000000f",
+      "name": "Assinar Sent",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [2420, 300]
     },
     {
       "parameters": {
@@ -150,19 +193,44 @@
         "headerParameters": {
           "parameters": [
             { "name": "Content-Type", "value": "application/json" },
-            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" }
+            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" },
+            { "name": "x-signature", "value": "=t={{ $('Payload Sent + TS').item.json.ts }},v={{ $json.data }}" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'sent', environment: ($('Normalizar Mensagem').first().json.instance.toLowerCase().includes('estrategos') ? 'estrategos' : 'sharks_company'), lead_id: $('Preparar Resposta').first().json.lead_id, text: $('Preparar Resposta').first().json.reply }) }}",
+        "jsonBody": "={{ $('Payload Sent + TS').item.json.payloadStr }}",
         "options": {}
       },
-      "id": "aaaa1111-0000-4000-8000-000000000007",
+      "id": "b1aaaa11-0000-4000-8000-000000000007",
       "name": "Registrar Envio (Edge)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1760, 300]
+      "position": [2640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload de erro + ts\nconst payload = { action: 'error', environment: 'sharks_company', text: 'Falha no fluxo de conversa: ' + ($json.error ?? 'erro desconhecido') };\nconst payloadStr = JSON.stringify(payload);\nreturn [{ json: { ts: Math.floor(Date.now() / 1000), payloadStr } }];"
+      },
+      "id": "b1aaaa11-0000-4000-8000-000000000010",
+      "name": "Payload Error + TS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 620]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "secret": "0b60e31b950462dfe9f938072a0ad15802b80f0ea7b02fa5edde6267914dd84a",
+        "value": "={{ $json.ts + '.' + $json.payloadStr }}",
+        "encoding": "base64"
+      },
+      "id": "b1aaaa11-0000-4000-8000-000000000011",
+      "name": "Assinar Error",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [1100, 620]
     },
     {
       "parameters": {
@@ -172,19 +240,20 @@
         "headerParameters": {
           "parameters": [
             { "name": "Content-Type", "value": "application/json" },
-            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" }
+            { "name": "x-worker-secret", "value": "oc_be3f92fca1ec44bfb85e2a75aecaa24d15762ec78c414094af68b1c8a5c09025" },
+            { "name": "x-signature", "value": "=t={{ $('Payload Error + TS').item.json.ts }},v={{ $json.data }}" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'error', environment: 'sharks_company', text: 'Falha no fluxo de conversa: ' + ($json.error ?? 'erro desconhecido') }) }}",
+        "jsonBody": "={{ $('Payload Error + TS').item.json.payloadStr }}",
         "options": {}
       },
-      "id": "aaaa1111-0000-4000-8000-000000000008",
+      "id": "b1aaaa11-0000-4000-8000-000000000008",
       "name": "Callback Diagnostico",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 520]
+      "position": [1320, 620]
     }
   ],
   "connections": {
@@ -196,9 +265,15 @@
     },
     "Mensagem valida?": {
       "main": [
-        [{ "node": "Cerebro da Conversa (Edge)", "type": "main", "index": 0 }],
+        [{ "node": "Preparar Payload", "type": "main", "index": 0 }],
         [{ "node": "Callback Diagnostico", "type": "main", "index": 0 }]
       ]
+    },
+    "Preparar Payload": {
+      "main": [[{ "node": "Assinar Cerebro", "type": "main", "index": 0 }]]
+    },
+    "Assinar Cerebro": {
+      "main": [[{ "node": "Cerebro da Conversa (Edge)", "type": "main", "index": 0 }]]
     },
     "Cerebro da Conversa (Edge)": {
       "main": [[{ "node": "Preparar Resposta", "type": "main", "index": 0 }]]
@@ -213,6 +288,12 @@
       ]
     },
     "Evolution Enviar Resposta": {
+      "main": [[{ "node": "Payload Sent + TS", "type": "main", "index": 0 }]]
+    },
+    "Payload Sent + TS": {
+      "main": [[{ "node": "Assinar Sent", "type": "main", "index": 0 }]]
+    },
+    "Assinar Sent": {
       "main": [[{ "node": "Registrar Envio (Edge)", "type": "main", "index": 0 }]]
     }
   },
