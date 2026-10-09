@@ -31,16 +31,17 @@ test('migration 067: fila com dedupe, trigger de transição e RLS por ambiente'
   assert.ok(!migration.includes('attachments'));
 });
 
-test('rotas e menu da Prospecção IA em Sharks e Estrategos (não no Cliente)', async () => {
+test('rotas e menu da Prospecção IA em Sharks, Estrategos e central Oracullo (não no Cliente)', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.ok(app.includes('path="/sharks/prospeccao"'));
   assert.ok(app.includes('path="/estrategos/prospeccao"'));
-  assert.ok(!app.includes('/oracullo/prospeccao'));
+  assert.ok(app.includes('path="/oracullo/prospeccao"')); // central god-view (guardião)
   assert.ok(!app.includes('/client/prospeccao'));
 
   const nav = await readFile(new URL('../src/components/layout/navItems.ts', import.meta.url), 'utf8');
   assert.ok(nav.includes("path: '/sharks/prospeccao'"));
   assert.ok(nav.includes("path: '/estrategos/prospeccao'"));
+  assert.ok(nav.includes("path: '/oracullo/prospeccao'"));
   assert.ok(!nav.includes("path: '/client/prospeccao'"));
 
   const perms = await readFile(new URL('../src/lib/permissions.ts', import.meta.url), 'utf8');
@@ -801,4 +802,33 @@ test('UI AgentPage: conectar WhatsApp oficial com template frio e status verde',
   assert.ok(agent.includes('Cloud API'));
   assert.ok(agent.includes('cold_template'));
   assert.ok(agent.includes('handleDisconnectWhatsApp'));
+});
+
+/* ---- Central Oracullo: p�ginas god-view (calend�rio, prospec��o, produtos, parceiros) ---- */
+
+test('central oracullo: rotas, menu e wrappers com switcher de ambiente', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  for (const r of ['/oracullo/calendar', '/oracullo/products', '/oracullo/parceiros']) {
+    assert.ok(app.includes(`path="${r}"`), `rota ausente: ${r}`);
+  }
+
+  const nav = await readFile(new URL('../src/components/layout/navItems.ts', import.meta.url), 'utf8');
+  for (const p of ["path: '/oracullo/calendar'", "path: '/oracullo/products'", "path: '/oracullo/parceiros'"]) {
+    assert.ok(nav.includes(p), `nav ausente: ${p}`);
+  }
+
+  const switcher = await readFile(new URL('../src/components/oracullo/EnvSwitcher.tsx', import.meta.url), 'utf8');
+  assert.ok(switcher.includes("'sharks_company'"));
+  assert.ok(switcher.includes("'estrategos'"));
+
+  for (const [file, comp] of [
+    ['OraculloCalendar.tsx', 'SharksCalendar'],
+    ['OraculloProspecting.tsx', 'ProspectingHub'],
+    ['OraculloPartners.tsx', 'PartnersPage'],
+    ['OraculloProducts.tsx', 'ProductsPage'],
+  ]) {
+    const page = await readFile(new URL(`../src/pages/oracullo/${file}`, import.meta.url), 'utf8');
+    assert.ok(page.includes(comp), `${file} sem ${comp}`);
+    assert.ok(page.includes('EnvSwitcher'), `${file} sem switcher`);
+  }
 });
