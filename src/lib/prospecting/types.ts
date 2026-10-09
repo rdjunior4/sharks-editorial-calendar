@@ -96,6 +96,7 @@ export interface ProspectingCampaign {
   environment: ProspectingEnvironment;
   name: string;
   objective: string | null;
+  offer: string | null;
   segment: string | null;
   location: string | null;
   company_size: string | null;
@@ -116,6 +117,7 @@ export interface ProspectingCampaign {
 export interface CampaignPayload {
   name: string;
   objective: string | null;
+  offer: string | null;
   segment: string | null;
   location: string | null;
   company_size: string | null;

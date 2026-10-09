@@ -188,6 +188,7 @@ async function loadAgentContext(admin: ReturnType<typeof serviceClient>, lead: L
   const jevConfig = ((settingsRow.data as { jev_config?: Record<string, unknown> } | null)?.jev_config ?? {}) as Record<string, unknown>;
 
   let campaignName: string | undefined;
+  let campaignOffer: string | null = null;
   let icp: CampaignICP | undefined;
   let products: string[] = [];
   const assets: string[] = [];
@@ -197,12 +198,13 @@ async function loadAgentContext(admin: ReturnType<typeof serviceClient>, lead: L
     const cid = lead.prospecting_campaign_id;
     const { data: camp } = await admin
       .from('prospecting_campaigns')
-      .select('name, segment, location, company_size, icp_description')
+      .select('name, segment, location, company_size, icp_description, offer')
       .eq('id', cid)
       .maybeSingle();
     if (camp) {
-      const c = camp as { name?: string; segment?: string | null; location?: string | null; company_size?: string | null; icp_description?: string | null };
+      const c = camp as { name?: string; segment?: string | null; location?: string | null; company_size?: string | null; icp_description?: string | null; offer?: string | null };
       campaignName = c.name;
+      campaignOffer = c.offer ?? null;
       icp = {
         campaign_name: c.name ?? null,
         segment: c.segment ?? null,
@@ -248,7 +250,7 @@ async function loadAgentContext(admin: ReturnType<typeof serviceClient>, lead: L
     .map(a => `${a.type === 'outreach_sent' ? 'enviada' : a.type === 'reply_received' ? 'recebida' : 'registro'}: ${a.content.slice(0, 160)}`)
     .reverse();
 
-  return { personality, campaignName, icp, products, assets, history, jevConfig, productIdSet };
+  return { personality, campaignName, campaignOffer, icp, products, assets, history, jevConfig, productIdSet };
 }
 
 /* ─── Voz: mesma esteira do rascunho (agent-voice) — signed URL (bucket privado) ─── */
@@ -398,6 +400,7 @@ Deno.serve(async req => {
       products: ctx.products,
       personality: (ctx.personality ?? {}) as AgentPersonality,
       icpDescription: ctx.icp?.icp_description ?? null,
+      offer: ctx.campaignOffer,
       assets: ctx.assets,
       conversationHistory: ctx.history,
       incomingMessage: text,
@@ -440,7 +443,35 @@ Deno.serve(async req => {
       await logActivity(admin, lead.id, 'system', `🔔 Escalonado para humano: ${result.escalate_reason ?? 'sem motivo detalhado'}`);
     } else if (convAction === 'schedule_meeting') {
       scheduled = true;
-      await logActivity(admin, lead.id, 'system', '📅 Lead pediu agendamento — sugerir slots e criar evento no calendário.');
+      // Marco real na agenda do ambiente (kind reuniao_lead, migration 078) —
+      // placeholder de amanhã 10:00; o time confirma o horário com o lead.
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const { data: existing } = await admin
+        .from('calendar_marcos')
+        .select('id, event_date')
+        .eq('lead_id', lead.id)
+        .eq('kind', 'reuniao_lead')
+        .maybeSingle();
+      const marcoPayload = {
+        event_date: tomorrow,
+        event_time: '10:00:00',
+        status: 'planned' as const,
+      };
+      if (existing) {
+        if ((existing as { event_date: string }).event_date < tomorrow) {
+          await admin.from('calendar_marcos').update({ ...marcoPayload, description: 'Reagendada pelo agente na conversa — confirmar horário com o lead.' }).eq('id', (existing as { id: string }).id);
+        }
+      } else {
+        await admin.from('calendar_marcos').insert({
+          environment,
+          kind: 'reuniao_lead',
+          title: `📅 Reunião — ${lead.name}`,
+          description: 'Agendada pelo agente de prospecção a partir da conversa. Confirmar horário com o lead.',
+          ...marcoPayload,
+          lead_id: lead.id,
+        });
+      }
+      await logActivity(admin, lead.id, 'meeting', '📅 Lead aceitou reunião — marco criado na agenda (confirmar horário).');
     }
 
     // ── Atualiza score JEV de forma leve (se score existe, marca temperatura) ──

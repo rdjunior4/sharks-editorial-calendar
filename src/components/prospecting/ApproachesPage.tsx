@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useState, useMemo } from 'react';
 import Card from '@/components/ui/Card';
 import Select from '@/components/ui/Select';
+import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import { cn } from '@/lib/utils';
-import { Search, Radio } from 'lucide-react';
+import { toast } from 'sonner';
+import { Search, Radio, Send } from 'lucide-react';
 import { useApproaches, type ApproachFeedItem, type ProspectingEnvironment } from '@/hooks/useProspecting';
 import { formatRelativeTime } from '@/lib/crmStages';
+import { callDispatch } from '@/lib/prospecting/dispatch';
 import ProvisionedAudio from '@/components/ui/ProvisionedAudio';
 
 type ApproachStatus = 'outreach_draft' | 'outreach_sent' | 'reply_received';
@@ -31,6 +34,19 @@ export default function ApproachesSection({ environment }: ApproachesPageProps) 
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
+
+  const approveDraft = async (item: ApproachFeedItem) => {
+    if (!item.lead?.id || sending) return;
+    setSending(item.id);
+    const result = await callDispatch({ action: 'approve_draft', lead_id: item.lead.id });
+    if (result.ok) {
+      toast.success('Aprovado! O envio entra na fila da esteira do agente (geralmente armado instantâneo até 5 min).');
+    } else {
+      toast.error(result.error ?? 'Não foi possível aprovar o envio');
+    }
+    setSending(null);
+  };
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -114,6 +130,18 @@ export default function ApproachesSection({ environment }: ApproachesPageProps) 
                     {formatRelativeTime(item.created_at)}
                   </span>
                 </div>
+                {isOpen && item.type === 'outreach_draft' && item.lead?.id && (
+                  <div className="mt-2 pt-2 border-t border-gray-100 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      onClick={() => approveDraft(item)}
+                      loading={sending === item.id}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Aprovar e enviar
+                    </Button>
+                  </div>
+                )}
                 {isOpen && (item.metadata?.audio_path || item.metadata?.audio_url) && (
                   <div className="mt-2 pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
                     <p className="text-[11px] text-gray-400 mb-1.5">🎙️ Resposta em áudio gerada pelo agente:</p>

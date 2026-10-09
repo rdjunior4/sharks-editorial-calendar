@@ -19,8 +19,9 @@ import Button from '@/components/ui/Button';
 import Tabs from '@/components/ui/Tabs';
 import { useEditorial } from '@/hooks/useEditorial';
 import { useStrategicDates } from '@/hooks/useStrategicDates';
-import { useCalendarMarcos, updateMarcoStatus, type CalendarMarco } from '@/hooks/usePartners';
+import { useCalendarMarcos, updateMarcoStatus, updateMarco, type CalendarMarco } from '@/hooks/usePartners';
 import Modal from '@/components/ui/Modal';
+import Input from '@/components/ui/Input';
 import { useActiveCampaigns } from '@/hooks/useCampaigns';
 import { ACTION_STATUSES, ACTION_STATUS_DOT_CLASSES } from '@/lib/constants';
 import { ChevronLeft, ChevronRight, Calendar, Plus, Wand2, RefreshCw } from 'lucide-react';
@@ -109,6 +110,28 @@ interface SharksCalendarProps {
   environment?: EnvironmentType;
 }
 
+/** Pill compacto de marco — usado nas views mês/semana/dia/agenda */
+function MarcoPill({ marco, onSelect, className }: { marco: CalendarMarco; onSelect: (m: CalendarMarco) => void; className?: string }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onSelect(marco); }}
+      className={cn(
+        'w-full text-left px-1 py-0.5 rounded border text-left transition-colors',
+        marco.kind === 'lead_cadastrado'
+          ? 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+          : 'bg-violet-50 border-violet-200 hover:bg-violet-100',
+        marco.status === 'done' && 'opacity-60 line-through',
+        className,
+      )}
+      title={`${marco.title}${marco.event_time ? ` · ${marco.event_time.slice(0, 5)}` : ''}`}
+    >
+      <span className={cn('text-[8px] font-medium truncate block', marco.kind === 'lead_cadastrado' ? 'text-gray-500' : 'text-violet-700')}>
+        {marco.event_time ? `${marco.event_time.slice(0, 5)} ` : ''}{marco.title}
+      </span>
+    </button>
+  );
+}
+
 export default function SharksCalendar({ initialView = 'month', environment }: SharksCalendarProps) {
   const { isMobile } = useBreakpoint();
   const { isAdmin } = useAuth();
@@ -121,6 +144,8 @@ export default function SharksCalendar({ initialView = 'month', environment }: S
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [selectedMarco, setSelectedMarco] = useState<CalendarMarco | null>(null);
+  const [marcoEditOpen, setMarcoEditOpen] = useState(false);
+  const [marcoForm, setMarcoForm] = useState<{ title: string; event_date: string; event_time: string }>({ title: '', event_date: '', event_time: '' });
   const [editingAction, setEditingAction] = useState<Action | null>(null);
   const [formDefaultDate, setFormDefaultDate] = useState<string | undefined>(undefined);
   const [draggedAction, setDraggedAction] = useState<Action | null>(null);
@@ -411,22 +436,7 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                     {dayMarcos.length > 0 && (
                       <div className="flex flex-col gap-0.5 mb-1">
                         {dayMarcos.slice(0, 3).map(m => (
-                          <button
-                            key={m.id}
-                            onClick={(e) => { e.stopPropagation(); setSelectedMarco(m); }}
-                            className={cn(
-                              'px-1 py-0.5 rounded border text-left transition-colors',
-                              m.kind === 'lead_cadastrado'
-                                ? 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                                : 'bg-violet-50 border-violet-200 hover:bg-violet-100',
-                              m.status === 'done' && 'opacity-60 line-through',
-                            )}
-                            title={`${m.title}${m.event_time ? ` · ${m.event_time.slice(0, 5)}` : ''}`}
-                          >
-                            <span className={cn('text-[8px] font-medium truncate block', m.kind === 'lead_cadastrado' ? 'text-gray-500' : 'text-violet-700')}>
-                              {m.event_time ? `${m.event_time.slice(0, 5)} ` : ''}{m.title}
-                            </span>
-                          </button>
+                          <MarcoPill key={m.id} marco={m} onSelect={setSelectedMarco} />
                         ))}
                         {dayMarcos.length > 3 && <p className="text-[8px] text-gray-400 leading-none">+{dayMarcos.length - 3} marcos</p>}
                       </div>
@@ -571,6 +581,7 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                       return dateStr >= start && dateStr <= end;
                     });
                     const dayStrategic = strategicDates.filter(s => s.date === dateStr);
+                    const dayWeekMarcos = marcos.filter(m => m.event_date === dateStr && m.status !== 'canceled');
 
                     return (
                       <DroppableCell
@@ -584,6 +595,13 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                               <div key={s.id} className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-50 border border-amber-200" title={s.description || s.title}>
                                 <span className="text-[8px] text-amber-600 font-medium truncate">{s.title}</span>
                               </div>
+                            ))}
+                          </div>
+                        )}
+                        {dayWeekMarcos.length > 0 && (
+                          <div className="flex flex-col gap-0.5">
+                            {dayWeekMarcos.slice(0, 4).map(m => (
+                              <MarcoPill key={m.id} marco={m} onSelect={setSelectedMarco} />
                             ))}
                           </div>
                         )}
@@ -650,7 +668,8 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
               {(() => {
                 const dateStr = formatCalendarDate(currentDate);
                 const dayActions = actions.filter(a => a.action_date === dateStr);
-                if (dayActions.length === 0) {
+                const dayViewMarcos = marcos.filter(m => m.event_date === dateStr && m.status !== 'canceled');
+                if (dayActions.length === 0 && dayViewMarcos.length === 0) {
                   return (
                     <div className="p-8 text-center cursor-pointer hover:bg-gray-50/80 transition-colors" onClick={() => handleCreateAtDate(dateStr)}>
                       <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-2" />
@@ -659,16 +678,25 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                     </div>
                   );
                 }
-                return dayActions.map(action => (
-                  <div key={action.id} className="p-3 hover:bg-gray-50/80 transition-colors">
-                    <CalendarEvent
-                      action={action}
-                      onClick={() => handleActionClick(action)}
-                      onQuickStatus={handleQuickStatus}
-                      showClient={isAdmin}
-                    />
-                  </div>
-                ));
+                return (
+                  <>
+                    {dayViewMarcos.map(m => (
+                      <div key={m.id} className="p-3">
+                        <MarcoPill marco={{ ...m }} onSelect={(mm) => setSelectedMarco(mm)} className="text-[10px] py-1" />
+                      </div>
+                    ))}
+                    {dayActions.map(action => (
+                      <div key={action.id} className="p-3 hover:bg-gray-50/80 transition-colors">
+                        <CalendarEvent
+                          action={action}
+                          onClick={() => handleActionClick(action)}
+                          onQuickStatus={handleQuickStatus}
+                          showClient={isAdmin}
+                        />
+                      </div>
+                    ))}
+                  </>
+                );
               })()}
             </div>
           </Card>
@@ -687,7 +715,8 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
               calendarDays.map((day, i) => {
                 const dateStr = formatCalendarDate(day);
                 const dayActions = actions.filter(a => a.action_date === dateStr);
-                if (dayActions.length === 0) return null;
+                const dayAgendaMarcos = marcos.filter(m => m.event_date === dateStr && m.status !== 'canceled');
+                if (dayActions.length === 0 && dayAgendaMarcos.length === 0) return null;
 
                 return (
                   <div key={i} className="p-4">
@@ -695,6 +724,9 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                       {format(day, 'EEEE, dd MMM', { locale: ptBR })}
                     </p>
                     <div className="space-y-2 ml-4">
+                      {dayAgendaMarcos.map(m => (
+                        <MarcoPill key={m.id} marco={m} onSelect={setSelectedMarco} className="text-[10px] py-1" />
+                      ))}
                       {dayActions.map(action => (
                         <CalendarEvent
                           key={action.id}
@@ -754,13 +786,56 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
         />
       )}
 
-      {/* Detalhe do marco */}
-      <Modal isOpen={!!selectedMarco} onClose={() => setSelectedMarco(null)} title="Marco da agenda" size="sm">
+      {/* Detalhe/edição do marco */}
+      <Modal isOpen={!!selectedMarco} onClose={() => { setSelectedMarco(null); setMarcoEditOpen(false); }} title="Marco da agenda" size="sm">
         {selectedMarco && (
+          marcoEditOpen ? (
+            <div className="space-y-3">
+              <Input
+                label="Título"
+                value={marcoForm.title}
+                onChange={(e) => setMarcoForm(f => ({ ...f, title: e.target.value }))}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Data"
+                  type="date"
+                  value={marcoForm.event_date}
+                  onChange={(e) => setMarcoForm(f => ({ ...f, event_date: e.target.value }))}
+                />
+                <Input
+                  label="Hora"
+                  type="time"
+                  value={marcoForm.event_time}
+                  onChange={(e) => setMarcoForm(f => ({ ...f, event_time: e.target.value }))}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <Button variant="ghost" size="sm" onClick={() => setMarcoEditOpen(false)}>Voltar</Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await updateMarco(selectedMarco.id, {
+                        title: marcoForm.title || selectedMarco.title,
+                        event_date: marcoForm.event_date || selectedMarco.event_date,
+                        event_time: marcoForm.event_time || null,
+                      });
+                      toast.success('Marco atualizado');
+                      setSelectedMarco(null);
+                      setMarcoEditOpen(false);
+                    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+                  }}
+                >
+                  Salvar
+                </Button>
+              </div>
+            </div>
+          ) : (
           <div className="space-y-3">
             <div>
               <p className="text-xs font-medium text-gray-400">
-                {selectedMarco.kind === 'reuniao_parceiro' ? '🤝 Reunião com parceiro' : selectedMarco.kind === 'acao_parceiro' ? '✨ Ação com parceiro' : '🎯 Marco de lead'}
+                {selectedMarco.kind === 'reuniao_parceiro' ? '🤝 Reunião com parceiro' : selectedMarco.kind === 'acao_parceiro' ? '✨ Ação com parceiro' : selectedMarco.kind === 'reuniao_lead' ? '📅 Reunião com lead' : '🎯 Marco de lead'}
               </p>
               <p className="text-sm font-semibold text-gray-900 mt-0.5">{selectedMarco.title}</p>
             </div>
@@ -768,20 +843,32 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
               {new Date(`${selectedMarco.event_date}T${selectedMarco.event_time ?? '00:00'}`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}
               {selectedMarco.event_time ? ` às ${selectedMarco.event_time.slice(0, 5)}` : ''}
             </p>
+            {selectedMarco.description && <p className="text-sm text-gray-600">{selectedMarco.description}</p>}
             {selectedMarco.partner?.name && <p className="text-sm text-gray-600">Parceiro: <strong>{selectedMarco.partner.name}</strong></p>}
             {selectedMarco.responsible?.full_name && <p className="text-sm text-gray-600">Responsável: {selectedMarco.responsible.full_name}</p>}
-            {selectedMarco.kind !== 'lead_cadastrado' && selectedMarco.status === 'planned' && (
+            {selectedMarco.status === 'planned' && (
               <div className="flex gap-2 pt-2 border-t border-gray-100">
+                <Button size="sm" variant="ghost" onClick={() => { setMarcoForm({ title: selectedMarco.title, event_date: selectedMarco.event_date, event_time: selectedMarco.event_time?.slice(0, 5) ?? '' }); setMarcoEditOpen(true); }}>
+                  Editar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => { try { await updateMarcoStatus(selectedMarco.id, 'done'); toast.success('Marco concluído'); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); } finally { setSelectedMarco(null); } }}
+                >
+                  Concluir
+                </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   onClick={async () => { try { await updateMarcoStatus(selectedMarco.id, 'canceled'); toast.success('Marco cancelado'); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); } finally { setSelectedMarco(null); } }}
                 >
-                  Cancelar marco
+                  Cancelar
                 </Button>
               </div>
             )}
           </div>
+          )
         )}
       </Modal>
     </div>

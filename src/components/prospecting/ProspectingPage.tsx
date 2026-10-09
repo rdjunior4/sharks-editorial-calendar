@@ -6,6 +6,8 @@ import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from 'sonner';
+import { Send } from 'lucide-react';
+import { callDispatch } from '@/lib/prospecting/dispatch';
 import {
   Plus, Radar, Loader2, Pencil, Trash2, Play, Pause, RotateCcw,
   Building2, Target, TrendingUp, Users, MessageSquare, CalendarCheck,
@@ -208,6 +210,19 @@ export default function CampaignsSection({ environment }: ProspectingPageProps) 
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    {c.status === 'running' && (
+                      <button
+                        onClick={async () => {
+                          const res = await callDispatch({ action: 'mass', campaign_id: c.id });
+                          if (res.ok) toast.success('Disparo em massa na fila! O agente envia em ritmo controlado (até 5min para começar).');
+                          else toast.error(res.error ?? 'Não disparavel');
+                        }}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-colors"
+                        title="Disparar em massa (inicia a abordagem nos qualificados)"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {c.status === 'draft' && (
                       <button onClick={() => handleStatus(c, 'running')} className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors" title="Iniciar execução">
                         <Play className="w-3.5 h-3.5" />

@@ -37,7 +37,7 @@ Deno.serve(async req => {
     const admin = serviceClient();
     const { data: job } = await admin
       .from('prospecting_jobs')
-      .select('id, status')
+      .select('id, status, type, lead_id, campaign_id, input')
       .eq('id', jobId)
       .maybeSingle();
     if (!job) return json(404, { error: 'Job nao encontrado' });
@@ -58,6 +58,23 @@ Deno.serve(async req => {
       .update(patch)
       .eq('id', jobId);
     if (upErr) return json(500, { error: `Atualizar job: ${upErr.message}` });
+
+    // ─── Envio concluído → registra na timeline e move o lead na esteira ───
+    const jrow = job as { type?: string; lead_id?: string | null; input?: { message?: string } | null };
+    if (status === 'completed' && jrow.type === 'send_message' && jrow.lead_id) {
+      const message = String(jrow.input?.message ?? '');
+      const { error: actErr } = await admin.from('crm_lead_activities').insert({
+        lead_id: jrow.lead_id,
+        type: 'outreach_sent',
+        content: `🤖 Mensagem enviada pela esteira do agente: ${message.slice(0, 300) || '(conteúdo no job)'}`,
+      });
+      if (actErr) console.error('[prospecting-job-callback] atividade falhou:', actErr.message);
+      await admin
+        .from('crm_leads')
+        .update({ prospecting_status: 'contacted', last_contact_at: new Date().toISOString() })
+        .eq('id', jrow.lead_id)
+        .or('prospecting_status.eq.queued,prospecting_status.eq.qualified');
+    }
 
     return json(200, { ok: true, job_id: jobId, status });
   } catch (e) {

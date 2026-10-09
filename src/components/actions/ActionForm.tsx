@@ -185,29 +185,38 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
-    supabase
-      .from('users')
-      .select('id, full_name')
-      .in('role', ['admin_sharks', 'sharks_team'])
-      .order('full_name')
-      .then(({ data }) => {
-        if (!active) return;
-        const list = (data ?? []).map(u => ({ id: u.id, full_name: u.full_name }));
-        // Preserva os responsáveis atuais (edição) mesmo se não estiverem na lista
-        const current = action?.responsibles ?? [];
-        if (current.length > 0) {
-          for (const r of current) {
-            if (!list.some(m => m.id === r.id)) {
-              list.push({ id: r.id, full_name: r.full_name });
-            }
+    // Responsáveis = staff do ambiente da agenda (user_environments, 023) —
+    // antes filtrava role hardcoded e ignorava o multiambiente
+    (async () => {
+      const { data: envIds } = await supabase
+        .from('user_environments')
+        .select('user_id')
+        .eq('environment', environment);
+      const ids = (envIds ?? []).map(r => r.user_id).filter(Boolean);
+      if (ids.length === 0) { if (active) setTeamMembers([]); return; }
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('id, full_name')
+        .in('id', ids)
+        .order('full_name');
+      if (!active) return;
+      if (error) { console.error('responsáveis:', error.message); setTeamMembers([]); return; }
+      const list = (users ?? []).map(u => ({ id: u.id, full_name: u.full_name }));
+      // Preserva os responsáveis atuais (edição) mesmo se não estiverem na lista
+      const current = action?.responsibles ?? [];
+      if (current.length > 0) {
+        for (const r of current) {
+          if (!list.some(m => m.id === r.id)) {
+            list.push({ id: r.id, full_name: r.full_name });
           }
-        } else if (action?.responsible_id && action?.responsible && !list.some(m => m.id === action.responsible_id)) {
-          list.push({ id: action.responsible.id, full_name: action.responsible.full_name });
         }
-        setTeamMembers(list);
-      });
+      } else if (action?.responsible_id && action?.responsible && !list.some(m => m.id === action.responsible_id)) {
+        list.push({ id: action.responsible.id, full_name: action.responsible.full_name });
+      }
+      setTeamMembers(list);
+    })();
     return () => { active = false; };
-  }, [isOpen, action?.responsibles, action?.responsible_id]);
+  }, [isOpen, environment, action?.responsibles, action?.responsible_id]);
 
   useEffect(() => {
     if (isOpen) {
@@ -285,6 +294,23 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
 
     setSaving(true);
     try {
+      // ─── Aviso de conflito: mesmo responsável, mesmo dia e mesma hora ───
+      if (formData.action_time && formData.responsible_ids[0]) {
+        const { data: conflicts } = await supabase
+          .from('actions')
+          .select('id, title')
+          .eq('action_date', formData.action_date)
+          .eq('action_time', formData.action_time)
+          .eq('responsible_id', formData.responsible_ids[0])
+          .neq('status', 'cancelled')
+          .neq('id', action?.id ?? '00000000-0000-0000-0000-000000000000')
+          .limit(3);
+        if (conflicts && conflicts.length > 0) {
+          const names = conflicts.map(c => c.title).join(' · ');
+          toast.warning(`Conflito de horário: o responsável já tem "${names.slice(0, 80)}" nesse dia/hora.`, { duration: 8000 });
+        }
+      }
+
       // ─── Ação única (o pop-up de extensão aparece depois) ───
       const payload = {
         ...formData,
