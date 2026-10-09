@@ -65,6 +65,8 @@ export interface ApproachInput {
   personality: AgentPersonality;
   research?: string | null;
   icpDescription?: string | null;
+  /** Oferta/desconto da campanha (cita quando fizer sentido, nunca inventa) */
+  offer?: string | null;
   /** Assets vinculados aos produtos da campanha (provas sociais, cases, FAQ, portfólio) */
   assets?: string[];
 }
@@ -296,6 +298,7 @@ export class GlmProvider implements GenerativeAI, GenerativeChatAI {
       input.lead.name ? `Lead: ${input.lead.name}` : '',
       input.lead.segment ? `Segmento: ${input.lead.segment}` : '',
       `Produtos relevantes: ${products}`,
+      input.offer ? `Oferta da campanha (cite só essa, sem inventar): ${input.offer.slice(0, 300)}` : '',
       input.icpDescription ? `Público-alvo: ${input.icpDescription.slice(0, 300)}` : '',
       assetsCtx ? `Material disponível (cite se fizer sentido, sem inventar):\n${assetsCtx}` : '',
       memoryLines.length ? `Memória do lead:\n${memoryLines.join('\n')}` : '',
@@ -337,6 +340,7 @@ export class GlmProvider implements GenerativeAI, GenerativeChatAI {
       input.lead.company_size ? `Porte: ${input.lead.company_size}` : '',
       input.research ? `Pesquisa: ${input.research.slice(0, 600)}` : '',
       `Produtos relevantes: ${products}`,
+      input.offer ? `Oferta da campanha (cite só essa, sem inventar outras): ${input.offer.slice(0, 300)}` : '',
       input.icpDescription ? `Público-alvo da campanha: ${input.icpDescription.slice(0, 400)}` : '',
       buildAssetsContext(input.assets) ? `Provas, cases e materiais disponíveis (cite os que fizerem sentido, sem inventar dados):\n${buildAssetsContext(input.assets)}` : '',
       '',
@@ -417,6 +421,8 @@ export interface ConversationInput {
   products: string[];
   personality: AgentPersonality;
   icpDescription?: string | null;
+  /** Oferta/desconto da campanha (cita quando fizer sentido, nunca inventa) */
+  offer?: string | null;
   assets?: string[];
   /** Histórico recente, um item por mensagem ("recebida: ..." / "enviada: ...") */
   conversationHistory?: string[];
