@@ -6,6 +6,7 @@ import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
+import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -89,6 +90,85 @@ export default function AgentSection({ environment, editable = false }: AgentPag
     } : f));
 
   const [igDisconnecting, setIgDisconnecting] = useState(false);
+
+  /* ── WhatsApp Cloud (oficial) ── */
+  const WA_CONNECT_EDGE = 'https://cyumczehpiiarwqrpgnu.supabase.co/functions/v1/whatsapp-connect';
+  interface WAConnMeta { phone_number_id: string; display_phone: string | null; cold_template: string | null; waba_id?: string | null }
+  const [wa, setWa] = useState<{ connection: WAConnMeta | null }>({ connection: null });
+  const [waModalOpen, setWaModalOpen] = useState(false);
+  const [waDisconnecting, setWaDisconnecting] = useState(false);
+  const [waForm, setWaForm] = useState({ access_token: '', phone_number_id: '', cold_template: '', cold_template_lang: 'pt_BR' });
+  const [waSaving, setWaSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      const res = await fetch(WA_CONNECT_EDGE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'status', environment }),
+      });
+      if (!res.ok) return;
+      const body = (await res.json().catch(() => ({}))) as { connection?: WAConnMeta | null };
+      setWa({ connection: body.connection ?? null });
+    })();
+  }, [environment]);
+
+  const handleConnectWhatsApp = async () => {
+    if (!waForm.phone_number_id.trim() || !waForm.access_token.trim()) return;
+    setWaSaving(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Sessão expirada');
+      const res = await fetch(WA_CONNECT_EDGE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'connect',
+          environment,
+          access_token: waForm.access_token.trim(),
+          phone_number_id: waForm.phone_number_id.replace(/\D/g, ''),
+          cold_template: waForm.cold_template.trim() || undefined,
+          cold_template_lang: waForm.cold_template_lang || 'pt_BR',
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string; display_phone?: string | null; phone_number_id?: string; cold_template?: string | null };
+      if (!res.ok) throw new Error(body.error ?? `Falha (${res.status})`);
+      toast.success(`WhatsApp oficial conectado: ${body.display_phone ?? body.phone_number_id}`);
+      setWa({ connection: { phone_number_id: body.phone_number_id ?? waForm.phone_number_id, display_phone: body.display_phone ?? null, cold_template: body.cold_template ?? null } });
+      setWaModalOpen(false);
+      setWaForm(f => ({ ...f, access_token: '' }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao conectar');
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const handleDisconnectWhatsApp = async () => {
+    setWaDisconnecting(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Sessão expirada');
+      const res = await fetch(WA_CONNECT_EDGE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'disconnect', environment }),
+      });
+      if (!res.ok) throw new Error('Falha ao desconectar');
+      toast.success('WhatsApp oficial desconectado');
+      setWa({ connection: null });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro');
+    } finally {
+      setWaDisconnecting(false);
+    }
+  };
+
   const handleDisconnectInstagram = async () => {
     setIgDisconnecting(true);
     try {
@@ -233,7 +313,81 @@ export default function AgentSection({ environment, editable = false }: AgentPag
               : 'Conta IG profissional dedicada com Página do Facebook vinculada.'}
           </p>
         </div>
+
+          {/* ── WhatsApp oficial (Cloud API) ── */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+            {wa.connection ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700">
+                  ✅ WhatsApp oficial conectado: {wa.connection.display_phone ?? wa.connection.phone_number_id}
+                </span>
+                {editable && (
+                  <>
+                    <Button size="sm" onClick={() => setWaModalOpen(true)}>Atualizar</Button>
+                    <Button size="sm" variant="ghost" loading={waDisconnecting} onClick={handleDisconnectWhatsApp}>Desconectar</Button>
+                  </>
+                )}
+              </>
+            ) : (
+              editable && <Button size="sm" onClick={() => setWaModalOpen(true)}>✅ Conectar WhatsApp oficial (Cloud API)</Button>
+            )}
+            <p className="text-[11px] text-gray-400">
+              {wa.connection
+                ? `Template frio: ${wa.connection.cold_template ?? '— (configure para disparo fora da janela 24h)'}`
+                : 'API oficial da Meta: respostas na janela 24h grátis; frio exige template aprovado.'}
+            </p>
+          </div>
       </Card>
+
+      {/* Mensaje modal WhatsApp oficial */}
+      <Modal isOpen={waModalOpen} onClose={() => setWaModalOpen(false)} title="WhatsApp oficial — Cloud API (Meta)" size="md">
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Pegue no painel Meta for Developers (app WhatsApp Business): <strong>Phone Number ID</strong> e um
+            <strong> Access Token permanente</strong> (System User). Respostas na janela de 24h não têm preço em tráfego; para disparo frio, crie um
+            template aprovado e preencha o nome.
+          </p>
+          <Input
+            label="Phone Number ID *"
+            value={waForm.phone_number_id}
+            onChange={(e) => setWaForm(f => ({ ...f, phone_number_id: e.target.value }))}
+            placeholder="ex.: 123456789012345"
+          />
+          <Input
+            label="Access Token (System User) *"
+            type="password"
+            value={waForm.access_token}
+            onChange={(e) => setWaForm(f => ({ ...f, access_token: e.target.value }))}
+            placeholder="EAAG..."
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              label="Template frio (nome aprovado)"
+              value={waForm.cold_template}
+              onChange={(e) => setWaForm(f => ({ ...f, cold_template: e.target.value }))}
+              placeholder="ex.: first_contact_v1"
+              className="sm:col-span-2"
+            />
+            <Select
+              label="Idioma"
+              value={waForm.cold_template_lang}
+              onChange={(e) => setWaForm(f => ({ ...f, cold_template_lang: e.target.value }))}
+              options={[
+                { value: 'pt_BR', label: 'pt_BR' },
+                { value: 'en_US', label: 'en_US' },
+                { value: 'es', label: 'es' },
+              ]}
+            />
+          </div>
+          <p className="text-[11px] text-gray-400">O token fica em tabela de serviço, nunca sai pelo REST para usuários (padrão da conexão IG).</p>
+        </div>
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+          <Button variant="ghost" onClick={() => setWaModalOpen(false)}>Cancelar</Button>
+          <Button onClick={handleConnectWhatsApp} loading={waSaving} disabled={!waForm.access_token.trim() || !waForm.phone_number_id.trim()}>
+            Conectar
+          </Button>
+        </div>
+      </Modal>
 
       {/* Personalidade & Parâmetros */}
       <Card padding="md">

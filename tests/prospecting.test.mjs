@@ -735,3 +735,70 @@ test('n8n Router: callback unico assinado (Preparar Callback → Assinar Callbac
   assert.equal(hmac.parameters.type, 'SHA256');
   assert.ok(hmac.parameters.value.includes('.'));
 });
+
+/* ---- WA-CLOUD (082): API oficial Meta ao lado da Evolution ---- */
+
+test('migration 080: whatsapp_connections com ambiente �nico e token blindado', async () => {
+  const m = await readFile(new URL('../supabase/migrations/080_whatsapp_cloud.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('CREATE TABLE IF NOT EXISTS public.whatsapp_connections'));
+  assert.ok(m.includes('uq_whatsapp_conn_env'));
+  assert.ok(m.includes('is_env_admin((select auth.uid()), environment)'));
+  assert.ok(m.includes('access_token text NOT NULL'));
+  assert.ok(m.includes('cold_template'));
+  assert.ok(m.includes('REVOKE ALL ON public.whatsapp_connections FROM authenticated'));
+  assert.ok(m.includes('GRANT SELECT (id, environment, waba_id, phone_number_id'));
+});
+
+test('shared auth: bypass interno Edge?Edge por token de servi�o', async () => {
+  const authTxt = await readFile(new URL('../supabase/functions/_shared/auth.ts', import.meta.url), 'utf8');
+  assert.ok(authTxt.includes("x-internal-token"));
+  assert.ok(authTxt.includes('signingKey && internalToken'));
+});
+
+test('shared whatsapp: cloud com janela 24h, template frio e mapping de erro 131026', async () => {
+  const wa = await readFile(new URL('../supabase/functions/_shared/whatsapp.ts', import.meta.url), 'utf8');
+  assert.ok(wa.includes('sendWAtext'));
+  assert.ok(wa.includes('sendWAaudio'));
+  assert.ok(wa.includes('sendWAtemplate'));
+  assert.ok(wa.includes("'invalid_number'"));
+  assert.ok(wa.includes("'131026'"));
+  assert.ok(wa.includes('loadWhatsAppConnection'));
+});
+
+test('worker: sendViaCloud prioriza cloud em janela (gr�tis) e evolu��o fora', async () => {
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(worker.includes('sendViaCloud'));
+  assert.ok(worker.includes('whatsapp_priority'));
+  assert.ok(worker.includes("priority === 'cloud'"));
+  assert.ok(worker.includes('inWindow'));
+  assert.ok(worker.includes('settings.jevConfig') || worker.includes('jevConfig'));
+});
+
+test('ingest: inbound WA oficial ? c�rebro com token interno + status failed descarta', async () => {
+  const ingest = await readFile(new URL('../supabase/functions/prospecting-ingest/index.ts', import.meta.url), 'utf8');
+  assert.ok(ingest.includes('messaging_product'));
+  assert.ok(ingest.includes('handleWhatsAppCloud'));
+  assert.ok(ingest.includes('last_wamid'));
+  assert.ok(ingest.includes('last_inbound_at'));
+  assert.ok(ingest.includes('BRAIN_EDGE'));
+  assert.ok(ingest.includes('x-internal-token'));
+  assert.ok(ingest.includes("'131026'"));
+});
+
+test('edge whatsapp-connect: valida��o no Graph + admin-only + status sem token', async () => {
+  const edge = await readFile(new URL('../supabase/functions/whatsapp-connect/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("action === 'connect'"));
+  assert.ok(edge.includes('display_phone_number'));
+  assert.ok(edge.includes('is_env_admin'));
+  assert.ok(edge.includes("action === 'status'"));
+  assert.ok(edge.includes("action === 'disconnect'"));
+});
+
+test('UI AgentPage: conectar WhatsApp oficial com template frio e status verde', async () => {
+  const agent = await readFile(new URL('../src/components/prospecting/AgentPage.tsx', import.meta.url), 'utf8');
+  assert.ok(agent.includes('WA_CONNECT_EDGE'));
+  assert.ok(agent.includes('whatsapp-connect'));
+  assert.ok(agent.includes('Cloud API'));
+  assert.ok(agent.includes('cold_template'));
+  assert.ok(agent.includes('handleDisconnectWhatsApp'));
+});
