@@ -59,6 +59,13 @@ export async function verifyWorker(req: Request, rawBody: string): Promise<Worke
   const workerSecret = edgeEnv('WORKER_SECRET');
   const signingKey = edgeEnv('WORKER_SIGNING_KEY');
 
+  // Caminho interno: Edge→Edge dentro do próprio projeto (ex.: ingest →
+  // cérebro da conversa). O token de serviço é uma Edge env — nunca exposto.
+  const internalToken = req.headers.get('x-internal-token');
+  if (signingKey && internalToken && timingSafeEq(internalToken, signingKey)) {
+    return { ok: true, status: 200 };
+  }
+
   if (!workerSecret) return { ok: false, status: 401, error: 'Worker secret não configurado no Edge' };
 
   const providedSecret = req.headers.get('x-worker-secret');

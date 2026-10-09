@@ -17,6 +17,7 @@ import { normalizePhone } from '../_shared/prospecting/ingest.ts';
 import { verifyWorker } from '../_shared/auth.ts';
 import { sendLeadInstagramDm, logInstagramDmSent } from '../_shared/instagram.ts';
 import { sendEmail, prospectionEmail } from '../_shared/email.ts';
+import { loadWhatsAppConnection, sendWAtext, sendWAaudio, sendWAtemplate, logWhatsAppSent } from '../_shared/whatsapp.ts';
 
 const CORS: Record<string, string> = {};
 function json(status: number, body: unknown) {
@@ -44,6 +45,7 @@ interface AgentSettings {
     glm_temperature: number;
     follow_up_days: number;
   };
+  jevConfig: Record<string, unknown>;
 }
 
 const DEFAULT_PARAMS: AgentSettings['params'] = {
@@ -60,13 +62,14 @@ const DEFAULT_PARAMS: AgentSettings['params'] = {
 async function loadSettings(admin: ReturnType<typeof serviceClient>, environment: string): Promise<AgentSettings> {
   const { data } = await admin
     .from('prospecting_agent_settings')
-    .select('personality, params')
+    .select('personality, params, jev_config')
     .eq('environment', environment)
     .maybeSingle();
-  const row = (data ?? {}) as { personality?: Partial<AgentPersonality>; params?: Partial<AgentSettings['params']> };
+  const row = (data ?? {}) as { personality?: Partial<AgentPersonality>; params?: Partial<AgentSettings['params']>; jev_config?: Record<string, unknown> };
   return {
     personality: { ...(row.personality ?? {}) },
     params: { ...DEFAULT_PARAMS, ...(row.params ?? {}) },
+    jevConfig: row.jev_config ?? {},
   };
 }
 
@@ -328,12 +331,59 @@ async function leadToPhone(admin: ReturnType<typeof serviceClient>, leadId: stri
   return phone.length >= 12 ? phone : `55${phone}`;
 }
 
-async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow, environment: string, campaignChannels: string[]) {
+/** WhatsApp Cloud (oficial): janela 24h → free-form; senão → template frio */
+async function sendViaCloud(admin: ReturnType<typeof serviceClient>, job: JobRow, leadId: string, environment: string, lead: { last_inbound_at?: string | null }, message: string, audioPath: string | null): Promise<void> {
+  const conn = await loadWhatsAppConnection(admin, environment);
+  if (!conn) throw new Error('WhatsApp Cloud não conectado neste ambiente — conecte no Agente ou use Evolution');
+  let audioUrl: string | null = null;
+  if (audioPath) {
+    try {
+      const signed = await admin.storage.from('agent-voice').createSignedUrl(audioPath, 3600);
+      audioUrl = signed.data?.signedUrl ?? null;
+    } catch (e) {
+      console.error('[prospecting-run] assinar áudio falhou:', e);
+    }
+  }
+  const to = await leadToPhone(admin, leadId);
+  const windowUntil = lead.last_inbound_at ? Date.parse(lead.last_inbound_at) + 24 * 3600 * 1000 : 0;
+  const inWindow = Date.now() < windowUntil;
+
+  const res = inWindow && audioUrl
+    ? await sendWAaudio(conn, to, audioUrl)
+    : inWindow
+    ? await sendWAtext(conn, to, message)
+    : await sendWAtemplate(conn, to, message);
+
+  if (res.ok) {
+    await logWhatsAppSent(admin, leadId, inWindow ? 'Resposta WhatsApp (oficial)' : 'Mensagem template WhatsApp (oficial)', message);
+    if (['discovered', 'qualified', 'queued'].includes(String((lead as { prospecting_status?: string }).prospecting_status ?? ''))) {
+      await admin.from('crm_leads').update({ prospecting_status: 'contacted', last_contact_at: new Date().toISOString() }).eq('id', leadId);
+    }
+    await completeJob(admin, job.id, { channel: 'whatsapp_cloud', wamid: res.wamid, in_window: inWindow });
+    return;
+  }
+  if (res.error_code === 'invalid_number') {
+    // Mesma mecânica do M4 — descarta o lead (sem follow-up)
+    await admin
+      .from('crm_leads')
+      .update({ prospecting_status: 'discarded', lost_reason: `Número sem WhatsApp (oficial): ${res.detail?.slice(0, 120) ?? ''}` })
+      .eq('id', leadId);
+    await admin.from('crm_lead_activities').insert({
+      lead_id: leadId,
+      type: 'system',
+      content: '📵 Número não é WhatsApp válido (API oficial) — lead descartado.',
+    });
+    throw new Error(`Número inexistente no WhatsApp: ${res.detail ?? ''}`);
+  }
+  throw new Error(`WhatsApp Cloud falhou (${res.error_code ?? 'send_fail'}): ${res.detail ?? ''}`);
+}
+
+async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow, environment: string, campaignChannels: string[], jevConfig: Record<string, unknown>) {
   const leadId = job.lead_id ?? (typeof job.input?.lead_id === 'string' ? job.input.lead_id : null);
   if (!leadId) throw new Error('Job de envio sem lead_id');
   const { data: lead, error: leadErr } = await admin
     .from('crm_leads')
-    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, prospecting_status, ai_data, prospecting_campaign_id')
+    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, prospecting_status, ai_data, prospecting_campaign_id, last_inbound_at')
     .eq('id', leadId)
     .maybeSingle();
   if (leadErr) throw new Error(`Buscar lead: ${leadErr.message}`);
@@ -377,6 +427,22 @@ async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow,
   const campaignFallback = !campaignChannels.length;
 
   if ((channels.includes('whatsapp') || campaignFallback) && normalizePhone(row.contact_phone)) {
+    // ── Transporte WhatsApp: jev_config.whatsapp_priority = 'auto' (padrão:
+    //    Cloud quando conectado E janela ativa — grátis e oficial; senão
+    //    Evolution) | 'cloud' | 'evolution' ──
+    const priority = String(jevConfig.whatsapp_priority ?? 'auto');
+    const cloudConn = await loadWhatsAppConnection(admin, environment);
+    const windowUntil = row.last_inbound_at ? Date.parse(row.last_inbound_at) + 24 * 3600 * 1000 : 0;
+    const inWindow = Date.now() < windowUntil;
+
+    if (cloudConn && (priority === 'cloud' || (priority === 'auto' && inWindow))) {
+      await admin.from('prospecting_jobs').update({ input: { ...job.input, message, channel: 'whatsapp_cloud' } }).eq('id', job.id);
+      await sendViaCloud(admin, { ...job, input: { ...job.input, message, channel: 'whatsapp_cloud' } }, leadId, environment, row, message, audioPath);
+      return;
+    }
+    if (priority === 'cloud' && !cloudConn) {
+      throw new Error('whatsapp_priority=cloud, mas WhatsApp Cloud não conectado no ambiente');
+    }
     await admin.from('prospecting_jobs').update({ input: { ...job.input, message, channel: 'whatsapp' } }).eq('id', job.id);
     await sendViaWhatsapp(admin, { ...job, input: { ...job.input, message, channel: 'whatsapp' } }, leadId, message, audioPath);
     return; // callback encerra o job
@@ -1017,7 +1083,7 @@ Deno.serve(async req => {
           await processGeneration(admin, job, settings, environment);
           generated++;
         } else if (job.type === 'send_message') {
-          await processSend(admin, job, environment, channels);
+          await processSend(admin, job, environment, channels, settings.jevConfig);
           dispatched++;
         } else if (job.type === 'follow_up') {
           if (!hasRealGenerative()) {

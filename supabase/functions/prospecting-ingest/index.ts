@@ -36,6 +36,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const VALID_ENVS = ['sharks_company', 'estrategos'];
 const VALID_SOURCES = ['meta_ads', 'meta_interaction', 'google', 'website', 'api'];
 const GRAPH_VERSION = 'v21.0';
+const BRAIN_EDGE = 'https://cyumczehpiiarwqrpgnu.supabase.co/functions/v1/prospecting-conversation';
 
 async function verifyMetaSignature(raw: string, signature: string, appSecret: string): Promise<boolean> {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(appSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -305,6 +306,112 @@ async function handleMeta(
   return json(200, { ok: true, results });
 }
 
+/* ─── WhatsApp Cloud (oficial): inbound + statuses ───
+   value: { messaging_product:'whatsapp', metadata:{phone_number_id},
+            contacts[], messages[{from,id,timestamp,text{body},type}] }
+   Texto → forward interno (x-internal-token) ao cérebro da conversa.
+   Status 'failed' (131026/131047) → lead descartado (M4). */
+async function handleWhatsAppCloud(
+  admin: ReturnType<typeof serviceClient>,
+  payload: Record<string, unknown>,
+  environment: string,
+  campaignId: string | null,
+): Promise<Response> {
+  const entries = (payload?.entry ?? []) as Array<Record<string, unknown>>;
+  const results: Array<{ mid?: string; from?: string; handled?: string; skipped?: string }> = [];
+
+  for (const entry of entries) {
+    const changes = (entry?.changes ?? []) as Array<Record<string, unknown>>;
+    for (const change of changes) {
+      const value = (change?.value ?? {}) as Record<string, unknown>;
+      if (String(value.messaging_product ?? '') !== 'whatsapp') continue;
+
+      const messages = (value.messages ?? []) as Array<Record<string, unknown>>;
+      for (const msg of messages) {
+        const from = normalizePhone(String(msg.from ?? ''));
+        const mid = String(msg.id ?? '');
+        const type = String(msg.type ?? 'text');
+        const textBody = String((msg.text as Record<string, unknown> | undefined)?.body ?? '')
+          || String((msg.button as { text?: string } | undefined)?.text ?? '')
+          || String(((msg.interactive as Record<string, unknown> | undefined)?.button_reply as { text?: string } | undefined)?.text ?? '')
+          || String(((msg.interactive as Record<string, unknown> | undefined)?.list_reply as { title?: string } | undefined)?.title ?? '');
+        if (!from) continue;
+        const lead = await findLead(admin, environment, { phone: from });
+        if (!lead) { results.push({ mid, from, skipped: 'lead nao encontrado' }); continue; }
+        if (mid && !shouldProcessEvent(lead.ai_data, 'wamid', mid, 'last_wamid')) {
+          results.push({ mid, from, skipped: 'evento duplicado' });
+          continue;
+        }
+
+        const tsSec = Number(msg.timestamp ?? 0);
+        const inboundAt = tsSec > 0 ? new Date(tsSec * 1000).toISOString() : new Date().toISOString();
+        if (mid) await mergeAiData(admin, lead.id, { last_wamid: mid, last_wa_from: from });
+
+        if (type !== 'text') {
+          await mergeAiData(admin, lead.id, { last_inbound_at: inboundAt });
+          await logActivity(admin, lead.id, 'reply_received', `📲 ${type} recebida no WhatsApp (oficial) — texto indisponível; pedir detalhe por escrito.`);
+          results.push({ mid, from, handled: `unsupported_${type}` });
+          continue;
+        }
+
+        await admin.from('crm_leads').update({
+          last_inbound_at: inboundAt,
+          last_contact_at: inboundAt,
+          ...(['contacted', 'queued', 'discovered', 'qualified'].includes(lead.prospecting_status ?? '') ? { prospecting_status: 'replied' } : {}),
+        }).eq('id', lead.id);
+        await logActivity(admin, lead.id, 'reply_received', `📲 WhatsApp (oficial): ${textBody.slice(0, 160)}`);
+
+        // Forward interno ao cérebro (mesma Edge env → HMAC interno)
+        const signingKey = Deno.env.get('WORKER_SIGNING_KEY');
+        const brainPayload = {
+          action: 'reply',
+          environment,
+          channel: 'whatsapp_cloud',
+          contact: { phone: from },
+          text: textBody.slice(0, 1000),
+          mid,
+        };
+        try {
+          await fetch(BRAIN_EDGE, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-worker-secret': Deno.env.get('WORKER_SECRET') ?? '',
+              ...(signingKey ? { 'x-internal-token': signingKey } : {}),
+            },
+            body: JSON.stringify(brainPayload),
+          });
+        } catch (e) {
+          console.error('[ingest] forward ao cérebro falhou:', e);
+        }
+        results.push({ mid, from, handled: 'forwarded' });
+      }
+
+      // ── Statuses (falha de entrega → lead descartado) ──
+      const statuses = (value.statuses ?? []) as Array<Record<string, unknown>>;
+      for (const st of statuses) {
+        if (String(st.status ?? '') !== 'failed') continue;
+        const rcTo = normalizePhone(String((st.recipient_id ?? '') as string));
+        const errCode = String(((st.errors as Array<{ code?: number }> | undefined)?.[0]?.code ?? ''));
+        const errText = String(((st.errors as Array<{ message?: string; error_data?: { details?: string } }> | undefined)?.[0] ?? {}) as { message?: string });
+        if (!rcTo) continue;
+        const lead = await findLead(admin, environment, { phone: rcTo });
+        if (!lead) continue;
+        if (errCode === '131026' || errCode === '131047' || /re-engage|não pertence|not exist/i.test(errText)) {
+          await admin.from('crm_leads').update({
+            prospecting_status: 'discarded',
+            lost_reason: `Número sem WhatsApp (Cloud): ${errCode} ${errText.slice(0, 80)}`,
+          }).eq('id', lead.id);
+          await logActivity(admin, lead.id, 'system', `📵 Envio falhou (Cloud ${errCode}) — lead descartado.`);
+        } else {
+          await logActivity(admin, lead.id, 'system', `⚠️ Status de falha no envio (Cloud): ${errCode} ${errText.slice(0, 120)}`);
+        }
+      }
+    }
+  }
+  return json(200, { ok: true, results });
+}
+
 Deno.serve(async req => {
   Object.assign(CORS, corsHeaders(req));
   try {
@@ -375,7 +482,15 @@ Deno.serve(async req => {
     const campaignId = url.searchParams.get('campaign');
     if (campaignId && !UUID_RE.test(campaignId)) return json(400, { error: 'campaign invalido' });
 
-    if (isMeta) return await handleMeta(admin, payload, environment, campaignId);
+    if (isMeta) {
+      // WhatsApp Cloud (official) usa a MESMA assinatura Meta — roteia antes do fluxo Instagram
+      const waPayload = ((payload?.entry ?? []) as Array<Record<string, unknown>>).some(e =>
+        ((e.changes ?? []) as Array<Record<string, unknown>>).some(c =>
+          String((c.value as Record<string, unknown> | undefined)?.messaging_product ?? '') === 'whatsapp',
+        ));
+      if (waPayload) return await handleWhatsAppCloud(admin, payload, environment, campaignId);
+      return await handleMeta(admin, payload, environment, campaignId);
+    }
 
     // ── Genérico assinado (lead direto) ──
     const source = String(payload?.source ?? '');
