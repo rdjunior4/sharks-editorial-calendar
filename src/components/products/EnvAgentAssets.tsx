@@ -11,6 +11,7 @@ import ChipMultiSelect from '@/components/ui/ChipMultiSelect';
 import EmptyState from '@/components/ui/EmptyState';
 import PageHeader from '@/components/ui/PageHeader';
 import { useEnvProducts } from '@/hooks/useEnvProducts';
+import { useSignedUrl } from '@/lib/prospecting/media';
 import type { CrmEnvironment } from '@/hooks/useLeads';
 import { toast } from 'sonner';
 import { Trophy, Plus, Pencil, Trash2, Paperclip } from 'lucide-react';
@@ -55,7 +56,18 @@ async function uploadAssetFile(environment: string, file: File): Promise<string>
   const path = `${environment}/${Date.now()}-${file.name.replace(/[^\w.\-]/g, '_')}`;
   const { error } = await supabase.storage.from('agent-assets').upload(path, file, { upsert: false });
   if (error) throw new Error(`Upload falhou: ${error.message}`);
-  return supabase.storage.from('agent-assets').getPublicUrl(path).data.publicUrl;
+  return path; // bucket privado — armazena o path; signed URL na exibição
+}
+
+/** Link do material anexo — resolve path/legacy para signed URL (1h). */
+function AssetFileLink({ fileUrl }: { fileUrl: string }) {
+  const href = useSignedUrl(fileUrl, 'agent-assets');
+  if (!href) return null;
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="text-[11px] text-primary-600 hover:underline mt-1 inline-flex items-center gap-1">
+      <Paperclip className="w-3 h-3" /> Material anexo
+    </a>
+  );
 }
 
 /**
@@ -196,11 +208,7 @@ export default function EnvAgentAssets({ environment }: { environment: CrmEnviro
                       )}
                     </div>
                     <p className="text-xs text-gray-600 mt-1 line-clamp-2 whitespace-pre-wrap">{a.content}</p>
-                    {a.file_url && (
-                      <a href={a.file_url} target="_blank" rel="noreferrer" className="text-[11px] text-primary-600 hover:underline mt-1 inline-flex items-center gap-1">
-                        <Paperclip className="w-3 h-3" /> Material anexo
-                      </a>
-                    )}
+                    {a.file_url && <AssetFileLink fileUrl={a.file_url} />}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button

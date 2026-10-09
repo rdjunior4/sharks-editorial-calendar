@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Search, Radio } from 'lucide-react';
 import { useApproaches, type ApproachFeedItem, type ProspectingEnvironment } from '@/hooks/useProspecting';
 import { formatRelativeTime } from '@/lib/crmStages';
+import ProvisionedAudio from '@/components/ui/ProvisionedAudio';
 
 type ApproachStatus = 'outreach_draft' | 'outreach_sent' | 'reply_received';
 
@@ -113,10 +114,10 @@ export default function ApproachesSection({ environment }: ApproachesPageProps) 
                     {formatRelativeTime(item.created_at)}
                   </span>
                 </div>
-                {isOpen && item.metadata?.audio_url && (
+                {isOpen && (item.metadata?.audio_path || item.metadata?.audio_url) && (
                   <div className="mt-2 pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
                     <p className="text-[11px] text-gray-400 mb-1.5">🎙️ Resposta em áudio gerada pelo agente:</p>
-                    <audio controls preload="none" src={item.metadata.audio_url} className="w-full h-9" />
+                    <ProvisionedAudio path={item.metadata?.audio_path ?? null} url={item.metadata?.audio_url ?? null} className="w-full h-9" />
                   </div>
                 )}
                 {isOpen && item.lead?.social_instagram && (

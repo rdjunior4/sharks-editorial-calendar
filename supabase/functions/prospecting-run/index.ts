@@ -227,8 +227,9 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
     assets,
   });
 
-  // ─── Voz: response_mode=audio/both → TTS → bucket agent-voice → metadata.audio_url ───
+  // ─── Voz: response_mode=audio/both → TTS → bucket agent-voice (privado, signed URL) → metadata ───
   let audioUrl: string | null = null;
+  let audioPath: string | null = null;
   const voice = settings.personality.voice;
   const wantsAudio = voice?.mode === 'audio' || voice?.mode === 'both';
   if (wantsAudio && hasRealSpeech()) {
@@ -240,7 +241,10 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
         const path = `${environment}/${leadId}/${job.id}.mp3`;
         const up = await admin.storage.from('agent-voice').upload(path, bytes, { contentType: audio.mimeType, upsert: true });
         if (!up.error) {
-          audioUrl = admin.storage.from('agent-voice').getPublicUrl(path).data.publicUrl;
+          // bucket privado → signed URL de 1h na metadata (player usa audio_path para re-assinar)
+          const signed = await admin.storage.from('agent-voice').createSignedUrl(path, 3600);
+          audioUrl = signed.data?.signedUrl ?? null;
+          audioPath = path;
         } else {
           console.error('[prospecting-run] upload de voz falhou:', up.error.message);
         }
@@ -255,7 +259,7 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
     leadId,
     'outreach_draft',
     `${draft.subject ? `Assunto: ${draft.subject}\n\n` : ''}${draft.message}`,
-    audioUrl ? { audio_url: audioUrl, audio_provider: 'elevenlabs' } : null,
+    audioUrl ? { audio_url: audioUrl, audio_path: audioPath, audio_provider: 'elevenlabs' } : null,
   );
   await completeJob(admin, job.id, { subject: draft.subject, message: draft.message, audio_url: audioUrl });
 }
