@@ -527,3 +527,92 @@ test('navegador: helper resolveStorageUrl assina path e re-assina legacy públic
   assert.ok(media.includes('agent-voice'));
   assert.ok(media.includes('agent-assets'));
 });
+
+/* ---- WH-3: disparo em massa, oferta, follow-up e agenda (078) ---- */
+
+test('migration 078: mass_dispatch, oferta e marcos refor�ados', async () => {
+  const m = await readFile(new URL('../supabase/migrations/078_mass_dispatch_agenda.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes("'mass_dispatch'"));
+  assert.ok(m.includes('ADD COLUMN IF NOT EXISTS offer'));
+  assert.ok(m.includes("'reuniao_lead'"));
+  assert.ok(m.includes('uq_calendar_marcos_lead_kind'));
+  assert.ok(m.includes('ON CONFLICT (lead_id, kind) DO NOTHING'));
+  assert.ok(m.includes('ADD TABLE public.calendar_marcos'));
+  assert.ok(m.includes('idx_crm_leads_followup'));
+});
+
+test('worker: send real prepara to/message/audio e guarda humano/frio', async () => {
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  // send_message n�o � mais blind forward: processSend valida e enriquece
+  assert.ok(worker.includes("job.type === 'send_message'"));
+  assert.ok(worker.includes('processSend'));
+  assert.ok(worker.includes('input: { ...job.input, message, to, audio_url: audioUrl, channel'));
+  // coordenador de massa + regra semi_auto precisa do primeiro envio aprovado
+  assert.ok(worker.includes("job.type === 'mass_dispatch'"));
+  assert.ok(worker.includes('processMass'));
+  assert.ok(worker.includes('campaignHasFirstSend'));
+  assert.ok(worker.includes('max_messages_per_day'));
+  assert.ok(worker.includes('staggerMs'));
+  // reaquecimento real
+  assert.ok(worker.includes("job.type === 'follow_up'"));
+  assert.ok(worker.includes('follow_up_days'));
+  assert.ok(worker.includes('followupsEnqueued'));
+});
+
+test('callback: send completed atualiza lead (contacted + timeline outreach_sent)', async () => {
+  const cb = await readFile(new URL('../supabase/functions/prospecting-job-callback/index.ts', import.meta.url), 'utf8');
+  assert.ok(cb.includes("jrow.type === 'send_message'"));
+  assert.ok(cb.includes("type: 'outreach_sent'"));
+  assert.ok(cb.includes("prospecting_status: 'contacted'"));
+  assert.ok(cb.includes('last_contact_at'));
+});
+
+test('conversa: schedule_meeting cria marco reuniao_lead na agenda', async () => {
+  const edge = await readFile(new URL('../supabase/functions/prospecting-conversation/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("kind: 'reuniao_lead'"));
+  assert.ok(edge.includes("'meeting'"));
+});
+
+test('edge dispatch: aprova��o e massa com staff-check + guards', async () => {
+  const edge = await readFile(new URL('../supabase/functions/prospecting-dispatch/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("action === 'approve_draft'"));
+  assert.ok(edge.includes("action === 'mass'"));
+  assert.ok(edge.includes('is_env_staff'));
+  assert.ok(edge.includes('auth.getUser'));
+  assert.ok(edge.includes('Nenhum rascunho de abordagem'));
+  assert.ok(edge.includes('Campanha precisa estar running'));
+});
+
+test('UI: aprovar no feed, disparar no card e oferta no form', async () => {
+  const feed = await readFile(new URL('../src/components/prospecting/ApproachesPage.tsx', import.meta.url), 'utf8');
+  assert.ok(feed.includes('callDispatch'));
+  assert.ok(feed.includes('Aprovar e enviar'));
+
+  const camps = await readFile(new URL('../src/components/prospecting/ProspectingPage.tsx', import.meta.url), 'utf8');
+  assert.ok(camps.includes("action: 'mass'"));
+  assert.ok(camps.includes('callDispatch'));
+
+  const form = await readFile(new URL('../src/components/prospecting/CampaignFormModal.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes('Oferta / desconto'));
+  assert.ok(form.includes('offer: values.offer'));
+
+  const types = await readFile(new URL('../src/lib/prospecting/types.ts', import.meta.url), 'utf8');
+  assert.ok(types.includes('offer'));
+});
+
+test('agenda: respons�veis por user_environments, conflito de hor�rio e TZ da agenda', async () => {
+  const form = await readFile(new URL('../src/components/actions/ActionForm.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes("from('user_environments')"));
+  assert.ok(form.includes('.in(') === false || form.includes("in('role'") === false);
+  assert.ok(form.includes('Conflito de hor'));
+
+  const ld = await readFile(new URL('../src/lib/localDate.ts', import.meta.url), 'utf8');
+  assert.ok(ld.includes('America/Sao_Paulo'));
+  assert.ok(ld.includes('Intl.DateTimeFormat'));
+
+  const cal = await readFile(new URL('../src/pages/sharks/SharksCalendar.tsx', import.meta.url), 'utf8');
+  assert.ok(cal.includes('MarcoPill'));          // componente compartilhado nas views
+  assert.ok(cal.includes('updateMarco'));        // edi��o de marcos
+  assert.ok(cal.includes("'reuniao_lead'"));     // r�tulo novo
+  assert.ok(cal.includes('marcoEditOpen'));      // modal edit�vel
+});

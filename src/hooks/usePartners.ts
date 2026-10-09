@@ -62,8 +62,8 @@ export function usePartners(environment: CrmEnvironment | null) {
   return { partners, loading };
 }
 
-/* ─── Marcos do calendário (lead cadastrado + eventos com parceiro) ─── */
-export type MarcoKind = 'lead_cadastrado' | 'reuniao_parceiro' | 'acao_parceiro';
+/* ─── Marcos do calendário (lead cadastrado + reuniões de parceiro/lead + ações do parceiro) ─── */
+export type MarcoKind = 'lead_cadastrado' | 'reuniao_parceiro' | 'acao_parceiro' | 'reuniao_lead';
 
 export interface CalendarMarco {
   id: string;
@@ -137,5 +137,13 @@ export async function createMarco(payload: MarcoPayload): Promise<void> {
 
 export async function updateMarcoStatus(id: string, status: 'planned' | 'done' | 'canceled'): Promise<void> {
   const { error } = await supabase.from('calendar_marcos').update({ status }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function updateMarco(
+  id: string,
+  patch: Partial<Pick<MarcoPayload, 'title' | 'description' | 'event_date' | 'event_time' | 'responsible_id' | 'status'>>,
+): Promise<void> {
+  const { error } = await supabase.from('calendar_marcos').update(patch).eq('id', id);
   if (error) throw new Error(error.message);
 }

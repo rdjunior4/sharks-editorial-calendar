@@ -15,6 +15,7 @@ import {
 export interface CampaignFormValues {
   name: string;
   objective: string;
+  offer: string;
   segment: string;
   location: string;
   company_size: string;
@@ -29,7 +30,7 @@ export interface CampaignFormValues {
 }
 
 const EMPTY: CampaignFormValues = {
-  name: '', objective: '', segment: '', location: '', company_size: '',
+  name: '', objective: '', offer: '', segment: '', location: '', company_size: '',
   icp_description: '', trigger_keywords: '', target_count: '100', channels: ['email'],
   automation_level: 'assisted', assigned_to: '', product_ids: [], status: 'draft',
 };
@@ -56,6 +57,7 @@ export default function CampaignFormModal({
       ? {
           name: campaign.name ?? '',
           objective: campaign.objective ?? '',
+          offer: campaign.offer ?? '',
           segment: campaign.segment ?? '',
           location: campaign.location ?? '',
           company_size: campaign.company_size ?? '',
@@ -128,6 +130,15 @@ export default function CampaignFormModal({
         />
         <p className="text-[11px] text-gray-400 -mt-2">O agente usa esta descrição para descobrir empresas e medir o fit de cada lead contra este perfil.</p>
 
+        <Textarea
+          label="Oferta / desconto para a conversa (opcional)"
+          value={form.offer}
+          onChange={(e) => setForm(f => ({ ...f, offer: e.target.value }))}
+          placeholder="Ex.: Primeira semana de teste grátis + 10% off no contrato de 12 meses no mês do startup."
+          rows={2}
+        />
+        <p className="text-[11px] text-gray-400 -mt-2">O agente cita esta oferta na conversa e nos rascunhos quando fizer sentido. Sem promessas fora daqui.</p>
+
         <Input
           label="Palavras-chave de gatilho (separadas por vírgula)"
           value={form.trigger_keywords}
@@ -162,7 +173,9 @@ export default function CampaignFormModal({
               onChange={(e) => setForm(f => ({ ...f, automation_level: e.target.value as AutomationLevel }))}
               options={AUTOMATION_LEVELS.map(a => ({ value: a, label: AUTOMATION_META[a].label }))}
             />
-            <p className="text-[11px] text-gray-400 mt-1">O MVP nunca executa abordagens reais automaticamente.</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              <strong>Assisted:</strong> você aprova cada envio · <strong>Semi-auto:</strong> aprova o 1º, o resto segue · <strong>Auto:</strong> dispara sozinho (ritmo controlado)
+            </p>
           </div>
           <Select
             label="Responsável"
@@ -192,6 +205,7 @@ export function payloadFromValues(values: CampaignFormValues, environment: Prosp
   return {
     name: values.name.trim(),
     objective: values.objective.trim() || null,
+    offer: values.offer.trim() || null,
     segment: values.segment.trim() || null,
     location: values.location.trim() || null,
     company_size: values.company_size || null,
