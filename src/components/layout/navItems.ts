@@ -19,6 +19,7 @@ import {
   Target,
   Package,
   Telescope,
+  Radar,
   Bot,
   MessagesSquare,
   Handshake,
@@ -148,7 +149,11 @@ export const ORACULLO_NAV: NavSection[] = [
   {
     items: [
       { icon: LayoutDashboard, label: 'Visão Geral', path: '/oracullo' },
+      { icon: Calendar, label: 'Calendário central', path: '/oracullo/calendar' },
       { icon: Target, label: 'CRM', path: '/oracullo/crm' },
+      { icon: Radar, label: 'Prospecção IA', path: '/oracullo/prospeccao' },
+      { icon: Package, label: 'Produtos', path: '/oracullo/products' },
+      { icon: Handshake, label: 'Parceiros', path: '/oracullo/parceiros' },
       { icon: ShieldCheck, label: 'Acessos', path: '/oracullo/access' },
       { icon: UserPlus, label: 'Solicitações', path: '/oracullo/access-requests' },
       { icon: Users, label: 'Usuários', path: '/oracullo/users' },

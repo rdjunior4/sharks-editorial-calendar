@@ -50,6 +50,10 @@ const TermsOfService = lazyPage(() => import('@/pages/legal/TermsOfService'));
 
 const OraculloDashboard = lazyPage(() => import('@/pages/oracullo/OraculloDashboard'));
 const OraculloClients = lazyPage(() => import('@/pages/oracullo/OraculloClients'));
+const OraculloCalendar = lazyPage(() => import('@/pages/oracullo/OraculloCalendar'));
+const OraculloProspecting = lazyPage(() => import('@/pages/oracullo/OraculloProspecting'));
+const OraculloProducts = lazyPage(() => import('@/pages/oracullo/OraculloProducts'));
+const OraculloPartners = lazyPage(() => import('@/pages/oracullo/OraculloPartners'));
 const OraculloAccess = lazyPage(() => import('@/pages/oracullo/OraculloAccess'));
 const OraculloAccessRequests = lazyPage(() => import('@/pages/oracullo/OraculloAccessRequests'));
 const OraculloUsers = lazyPage(() => import('@/pages/oracullo/OraculloUsers'));
@@ -182,8 +186,12 @@ function AppRoutes() {
 
         {/* Oracullo (governança multi-ambiente) */}
         <Route path="/oracullo" element={<OraculloLayout><OraculloDashboard /></OraculloLayout>} />
-        <Route path="/oracullo/access" element={<OraculloLayout><OraculloAccess /></OraculloLayout>} />
+        <Route path="/oracullo/calendar" element={<OraculloLayout><OraculloCalendar /></OraculloLayout>} />
         <Route path="/oracullo/crm" element={<OraculloLayout><OraculloCRM /></OraculloLayout>} />
+        <Route path="/oracullo/prospeccao" element={<OraculloLayout><OraculloProspecting /></OraculloLayout>} />
+        <Route path="/oracullo/products" element={<OraculloLayout><OraculloProducts /></OraculloLayout>} />
+        <Route path="/oracullo/parceiros" element={<OraculloLayout><OraculloPartners /></OraculloLayout>} />
+        <Route path="/oracullo/access" element={<OraculloLayout><OraculloAccess /></OraculloLayout>} />
         <Route path="/oracullo/access-requests" element={<OraculloLayout><OraculloAccessRequests /></OraculloLayout>} />
         <Route path="/oracullo/users" element={<OraculloLayout><OraculloUsers /></OraculloLayout>} />
         <Route path="/oracullo/clients" element={<OraculloLayout><OraculloClients /></OraculloLayout>} />
