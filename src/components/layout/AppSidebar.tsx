@@ -36,10 +36,12 @@ function detectEnv(pathname: string): SidebarEnv {
 interface AppSidebarProps {
   open: boolean;
   onClose: () => void;
+  /** Estado do recolhimento vive no AppLayout — o conteúdo desloca junto (transição sincronizada). */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-export default function AppSidebar({ open, onClose }: AppSidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+export default function AppSidebar({ open, onClose, collapsed = false, onToggleCollapsed }: AppSidebarProps) {
   const [envMenuOpen, setEnvMenuOpen] = useState(false);
   const { user, signOut, isSharks, isAdmin, isOracullo, environments, hasAccess } = useAuth();
   const { currentWorkspace } = useWorkspace();
@@ -322,7 +324,7 @@ export default function AppSidebar({ open, onClose }: AppSidebarProps) {
 
         {/* Collapse toggle */}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => onToggleCollapsed?.()}
           aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
           className="hidden lg:flex absolute -right-3 top-20 w-6 h-6 bg-white border border-gray-200 rounded-full items-center justify-center text-gray-400 hover:text-gray-600 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
         >
