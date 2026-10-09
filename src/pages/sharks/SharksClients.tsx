@@ -38,7 +38,10 @@ export default function SharksClients() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <PageHeader title="Clientes" subtitle="Gerencie os workspaces de cada cliente" />
+        <PageHeader
+          title="Clientes"
+          subtitle="Gerencie os workspaces de cada cliente"
+        />
         <Button onClick={() => setWizardOpen(true)}>
           <Plus className="w-4 h-4" />
           Novo cliente
@@ -55,54 +58,83 @@ export default function SharksClients() {
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workspaces.map(ws => (
-            <Card key={ws.id} className="relative group">
-              <div
-                className="flex items-start gap-3 cursor-pointer"
-                onClick={() => { setCurrentWorkspace(ws); window.location.hash = '#/sharks/calendar'; }}
-              >
-                <WorkspaceLogo name={ws.name} logoUrl={ws.logo_url} size="lg" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 truncate">{ws.name}</h3>
-                  <p className="text-xs text-gray-500">{ws.segment}</p>
-                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-1">
-                    <MapPin className="w-3 h-3" />
-                    {ws.city}, {ws.state}
-                  </p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300" />
-              </div>
-              {/* Action buttons */}
-              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditing({
-                      id: ws.id,
-                      name: ws.name,
-                      segment: ws.segment,
-                      city: ws.city,
-                      state: ws.state,
-                      logo_url: ws.logo_url,
-                    });
-                  }}
-                  className="p-1.5 rounded-lg bg-white/90 border border-gray-200 text-gray-500 hover:text-primary-600 hover:border-primary-200 hover:bg-primary-50 transition-colors"
-                  title="Editar"
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-500">
+              {workspaces.length} cliente{workspaces.length !== 1 ? 's' : ''} ativo{workspaces.length !== 1 ? 's' : ''}
+            </span>
+            <span className="flex-1 h-px bg-gray-100" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {workspaces.map(ws => {
+              const location = [ws.city, ws.state].filter(Boolean).join(', ');
+              const segment = (ws.segment ?? '').trim();
+              return (
+                <Card
+                  key={ws.id}
+                  className="relative group transition-all duration-200 hover:shadow-lg hover:shadow-gray-200/70 hover:border-primary-200"
                 >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeleteConfirm(ws.id); }}
-                  className="p-1.5 rounded-lg bg-white/90 border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
-                  title="Excluir"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </Card>
-          ))}
-        </div>
+                  <div
+                    className="flex items-top gap-3.5 cursor-pointer rounded-xl"
+                    onClick={() => { setCurrentWorkspace(ws); window.location.hash = '#/sharks/calendar'; }}
+                  >
+                    <div className="rounded-xl ring-1 ring-black/5 shadow-sm overflow-hidden shrink-0">
+                      <WorkspaceLogo name={ws.name} logoUrl={ws.logo_url} size="lg" />
+                    </div>
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <h3 className="font-semibold text-gray-900 leading-tight group-hover:text-primary-700 transition-colors">
+                        {ws.name}
+                      </h3>
+                      {segment ? (
+                        <span className="mt-1.5 inline-block px-2 py-0.5 rounded-full bg-gray-50 border border-gray-100 text-[11px] font-medium text-gray-600">
+                          {segment}
+                        </span>
+                      ) : (
+                        <span className="mt-1.5 inline-block px-2 py-0.5 rounded-full bg-gray-50 border border-dashed border-gray-200 text-[11px] text-gray-400">
+                          Sem segmento
+                        </span>
+                      )}
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-2">
+                        <MapPin className="w-3 h-3 text-gray-300" />
+                        {location || 'Localização não informada'}
+                      </p>
+                    </div>
+                    <span className="w-6 h-6 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 transition-all duration-200 group-hover:bg-primary-50 group-hover:border-primary-200">
+                      <ChevronRight className="w-3.5 h-3.5 text-gray-300 transition-all duration-200 group-hover:text-primary-500 group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                  {/* Action buttons */}
+                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing({
+                          id: ws.id,
+                          name: ws.name,
+                          segment: ws.segment,
+                          city: ws.city,
+                          state: ws.state,
+                          logo_url: ws.logo_url,
+                        });
+                      }}
+                      className="p-1.5 rounded-lg bg-white/90 backdrop-blur border border-gray-200 text-gray-500 hover:text-primary-600 hover:border-primary-200 hover:bg-primary-50 transition-colors shadow-sm"
+                      title="Editar"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirm(ws.id); }}
+                      className="p-1.5 rounded-lg bg-white/90 backdrop-blur border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors shadow-sm"
+                      title="Excluir"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Onboarding Wizard completo (linha editorial, frequência, datas e Google Calendar) */}
