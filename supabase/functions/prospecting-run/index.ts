@@ -14,6 +14,9 @@ import { serviceClient, corsHeaders } from '../_shared/google.ts';
 import { getDecisionAI, getGenerativeAI, getGenerativeChatAI, hasRealAI, hasRealGenerative, type CompanyProfile, type AgentPersonality, type CampaignICP } from '../_shared/prospecting/ai.ts';
 import { getSpeechProvider, hasRealSpeech } from '../_shared/prospecting/speech.ts';
 import { normalizePhone } from '../_shared/prospecting/ingest.ts';
+import { verifyWorker } from '../_shared/auth.ts';
+import { sendLeadInstagramDm, logInstagramDmSent } from '../_shared/instagram.ts';
+import { sendEmail, prospectionEmail } from '../_shared/email.ts';
 
 const CORS: Record<string, string> = {};
 function json(status: number, body: unknown) {
@@ -267,46 +270,38 @@ async function processGeneration(admin: ReturnType<typeof serviceClient>, job: J
   await completeJob(admin, job.id, { subject: draft.subject, message: draft.message, audio_url: audioUrl });
 }
 
-/* ─── ENVIO: prepara e despacha a mensagem real para o n8n/Evolution ─── */
-/* Router espera input.{to, message, audio_url}; callback encerra o job. */
-async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow, environment: string) {
-  const leadId = job.lead_id ?? (typeof job.input?.lead_id === 'string' ? job.input.lead_id : null);
-  if (!leadId) throw new Error('Job de envio sem lead_id');
-  const { data: lead, error: leadErr } = await admin
-    .from('crm_leads')
-    .select('id, name, contact_phone, conversation_mode')
-    .eq('id', leadId)
+/* ─── ENVIO: roteia pelo canal da campanha (WH WhatsApp / IG DM / e-mail) ───
+   Campanha escolhe canais; o contato do lead decide qual usar primeiro.
+   WhatsApp → n8n/Evolution (callback encerra) · IG → API oficial (inline) ·
+   e-mail → Resend (inline). */
+
+interface DraftContent {
+  subject: string | null;
+  message: string;
+  audioPath: string | null;
+}
+
+async function loadLatestDraft(admin: ReturnType<typeof serviceClient>, leadId: string): Promise<DraftContent | null> {
+  const { data: draft } = await admin
+    .from('crm_lead_activities')
+    .select('content, metadata')
+    .eq('lead_id', leadId)
+    .eq('type', 'outreach_draft')
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
-  if (leadErr) throw new Error(`Buscar lead: ${leadErr.message}`);
-  if (!lead) throw new Error('Lead não encontrado para envio');
-  if ((lead as { conversation_mode?: string } | null)?.conversation_mode === 'human') {
-    throw new Error('Lead em modo humano — conversa manual, envio automático cancelado');
-  }
-  const phone = normalizePhone((lead as { contact_phone?: string | null } | null)?.contact_phone ?? null);
-  if (!phone) throw new Error('Lead sem telefone válido para envio no WhatsApp');
+  const content = (draft as { content?: string; metadata?: { audio_path?: string } | null } | null)?.content ?? '';
+  if (!content) return null;
+  const m = content.match(/^Assunto:\s*(.+)\r?\n\s*([\s\S]*)$/i);
+  return {
+    subject: m ? m[1].trim() : null,
+    message: m ? m[2].trim() : content.trim(),
+    audioPath: ((draft?.metadata as { audio_path?: string } | null)?.audio_path) ?? null,
+  };
+}
 
-  // Mensagem: input.message (approve/follow-up) ou último rascunho do lead
-  let message = typeof job.input?.message === 'string' ? String(job.input.message) : '';
-  let audioPath: string | null = typeof job.input?.audio_path === 'string' ? String(job.input.audio_path) : null;
-  if (!message) {
-    const { data: draft } = await admin
-      .from('crm_lead_activities')
-      .select('content, metadata')
-      .eq('lead_id', leadId)
-      .eq('type', 'outreach_draft')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const content = (draft as { content?: string; metadata?: { audio_path?: string } | null } | null)?.content ?? '';
-    if (!content) throw new Error('Nenhum rascunho de abordagem para enviar');
-    // Remove o cabeçalho "Assunto: ..." do e-mail-style draft
-    const m = content.match(/^Assunto:\s*.+\r?\n\s*([\s\S]*)$/i);
-    message = m ? m[1].trim() : content.trim();
-    audioPath = ((draft?.metadata as { audio_path?: string } | null)?.audio_path) ?? null;
-  }
-  if (!message) throw new Error('Mensagem vazia para envio');
-
-  // URL do áudio assinada agora (bucket privado; o n8n baixa imediatamente)
+/** WhatsApp → n8n/Evolution (permanece 'processing' até callback) */
+async function sendViaWhatsapp(admin: ReturnType<typeof serviceClient>, job: JobRow, leadId: string, message: string, audioPath: string | null): Promise<void> {
   let audioUrl: string | null = null;
   if (audioPath) {
     try {
@@ -316,33 +311,116 @@ async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow,
       console.error('[prospecting-run] assinar áudio falhou:', e);
     }
   }
+  const n8nUrl = Deno.env.get('N8N_WEBHOOK_URL');
+  if (!n8nUrl) throw new Error('Integrador externo (n8n) não configurado — defina N8N_WEBHOOK_URL');
+  await fetch(n8nUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-worker-secret': Deno.env.get('WORKER_SECRET') ?? '' },
+    body: JSON.stringify({ job_id: job.id, type: 'send_message', campaign_id: job.campaign_id, lead_id: leadId,
+      input: { ...job.input, message, to: leadToPhone(admin, leadId), audio_url: audioUrl, channel: 'whatsapp' } }),
+  });
+}
 
-  // Prefixo do país se faltar (Evolution espera DDI no jid)
-  const to = phone.length >= 12 ? phone : `55${phone}`;
+async function leadToPhone(admin: ReturnType<typeof serviceClient>, leadId: string): Promise<string> {
+  const { data: lead } = await admin.from('crm_leads').select('contact_phone').eq('id', leadId).maybeSingle();
+  const phone = normalizePhone((lead as { contact_phone?: string | null } | null)?.contact_phone ?? null);
+  if (!phone) throw new Error('Lead sem telefone válido para WhatsApp');
+  return phone.length >= 12 ? phone : `55${phone}`;
+}
 
-  // Guard: lead já respondeu? → não mandar por cima da conversa
+async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow, environment: string, campaignChannels: string[]) {
+  const leadId = job.lead_id ?? (typeof job.input?.lead_id === 'string' ? job.input.lead_id : null);
+  if (!leadId) throw new Error('Job de envio sem lead_id');
+  const { data: lead, error: leadErr } = await admin
+    .from('crm_leads')
+    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, prospecting_status, ai_data, prospecting_campaign_id')
+    .eq('id', leadId)
+    .maybeSingle();
+  if (leadErr) throw new Error(`Buscar lead: ${leadErr.message}`);
+  if (!lead) throw new Error('Lead não encontrado para envio');
+  const row = lead as {
+    id: string; name: string; contact_phone: string | null; contact_email: string | null; social_instagram: string | null;
+    conversation_mode: string | null; prospecting_status: string | null; ai_data: Record<string, unknown> | null; prospecting_campaign_id: string | null;
+  };
+  if (row.conversation_mode === 'human') {
+    throw new Error('Lead em modo humano — conversa manual, envio automático cancelado');
+  }
+
+  // Mensagem: input.message (approve/follow-up) ou último rascunho do lead
+  let message = typeof job.input?.message === 'string' ? String(job.input.message) : '';
+  let subject: string | null = null;
+  let audioPath: string | null = typeof job.input?.audio_path === 'string' ? String(job.input.audio_path) : null;
+  if (!message) {
+    const draft = await loadLatestDraft(admin, leadId);
+    if (!draft) throw new Error('Nenhum rascunho de abordagem para enviar');
+    message = draft.message;
+    subject = draft.subject;
+    audioPath = draft.audioPath;
+  }
+  if (!message) throw new Error('Mensagem vazia para envio');
+
+  // Guard: lead já recebeu abordagem nesta esteira (dedupe de envio)
   const { data: sentRecent } = await admin
     .from('crm_lead_activities')
     .select('id', { count: 'exact', head: true })
     .eq('lead_id', leadId)
     .eq('type', 'outreach_sent')
     .limit(1);
-  if ((sentRecent as unknown as { length?: number } | null)?.length) {
+  if (((sentRecent as unknown as { count?: number } | null)?.count ?? 0) > 0) {
     throw new Error('Lead já recebeu abordagem nesta esteira (dedupe de envio)');
   }
 
-  const enrichedPayload = {
-    job_id: job.id, type: 'send_message', campaign_id: job.campaign_id, lead_id: leadId,
-    input: { ...job.input, message, to, audio_url: audioUrl, channel: 'whatsapp' },
-  };
-  const n8nUrl = Deno.env.get('N8N_WEBHOOK_URL');
-  if (!n8nUrl) throw new Error('Integrador externo (n8n) não configurado — defina N8N_WEBHOOK_URL');
-  await fetch(n8nUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-worker-secret': Deno.env.get('WORKER_SECRET') ?? '' },
-    body: JSON.stringify(enrichedPayload),
-  });
-  // permanece 'processing' até o callback
+  // ─── Resolução de canal: campanha marca; contato do lead viabiliza ───
+  const channels = campaignChannels.length
+    ? campaignChannels
+    : ['whatsapp', 'instagram', 'email']; // campanha sem canal marcado → qualquer um
+  const campaignFallback = !campaignChannels.length;
+
+  if ((channels.includes('whatsapp') || campaignFallback) && normalizePhone(row.contact_phone)) {
+    await admin.from('prospecting_jobs').update({ input: { ...job.input, message, channel: 'whatsapp' } }).eq('id', job.id);
+    await sendViaWhatsapp(admin, { ...job, input: { ...job.input, message, channel: 'whatsapp' } }, leadId, message, audioPath);
+    return; // callback encerra o job
+  }
+
+  if ((channels.includes('instagram') || campaignFallback) && row.social_instagram) {
+    const ig = await sendLeadInstagramDm(admin,
+      { id: row.id, environment, social_instagram: row.social_instagram, prospecting_status: row.prospecting_status, ai_data: row.ai_data as { ig_sid?: string } | null },
+      message);
+    if (!ig.ok) {
+      throw new Error(ig.error_code === 'no_window'
+        ? 'Instagram: sem janela de conversa (lead precisa interagir antes) — DM vai para o gatilho'
+        : `Envio DM falhou (${ig.status}): ${ig.detail ?? ''}`);
+    }
+    await logInstagramDmSent(admin, leadId, message, null);
+    if (['discovered', 'qualified', 'queued'].includes(String(row.prospecting_status ?? ''))) {
+      await admin.from('crm_leads').update({ prospecting_status: 'contacted', last_contact_at: new Date().toISOString() }).eq('id', leadId);
+    }
+    await completeJob(admin, job.id, { channel: 'instagram', sent_to: ig.sent_to });
+    return;
+  }
+
+  if ((channels.includes('email') || campaignFallback) && (row.contact_email ?? '').includes('@')) {
+    const mail = prospectionEmail({ leadName: row.name, subject, message });
+    const sent = await sendEmail({ to: row.contact_email!, subject: mail.subject, html: mail.html });
+    if (!sent.ok) throw new Error(`E-mail não enviado: ${sent.error ?? 'Resend indisponível'}`);
+    const { error: actErr } = await admin.from('crm_lead_activities').insert({
+      lead_id: leadId,
+      type: 'outreach_sent',
+      content: `🤖 E-mail enviado pela esteira do agente:\n${message.slice(0, 280)}`,
+    });
+    if (actErr) console.error('[prospecting-run] atividade email:', actErr.message);
+    if (['discovered', 'qualified', 'queued'].includes(String(row.prospecting_status ?? ''))) {
+      await admin.from('crm_leads').update({ prospecting_status: 'contacted', last_contact_at: new Date().toISOString() }).eq('id', leadId);
+    }
+    await completeJob(admin, job.id, { channel: 'email', sent_to: row.contact_email });
+    return;
+  }
+
+  const missing: string[] = [];
+  if (channels.includes('whatsapp') && !normalizePhone(row.contact_phone)) missing.push('telefone (WhatsApp)');
+  if (channels.includes('instagram') && !row.social_instagram) missing.push('@Instagram');
+  if (channels.includes('email') && !(row.contact_email ?? '').includes('@')) missing.push('e-mail');
+  throw new Error(`Nenhum canal envio do lead compatível com a campanha — faltando: ${missing.join(', ') || '(canal?)'}`);
 }
 
 /* ─── FOLLOW-UP: toque suave para lead sem resposta ─── */
@@ -399,10 +477,10 @@ function sanitizeOutbound(text: string): string {
 }
 
 /* ─── MASS DISPATCH: coordenador do disparo da campanha ─── */
-async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string) {
+async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string, campaignChannels: string[]) {
   const { data: camp, error: campErr } = await admin
     .from('prospecting_campaigns')
-    .select('name, automation_level, status')
+    .select('name, automation_level, status, channels')
     .eq('id', job.campaign_id)
     .maybeSingle();
   if (campErr) throw new Error(`Buscar campanha: ${campErr.message}`);
@@ -413,16 +491,22 @@ async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow,
 
   const { data: leadRows } = await admin
     .from('crm_leads')
-    .select('id, name, contact_phone, conversation_mode, ai_data')
+    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, ai_data')
     .eq('prospecting_campaign_id', job.campaign_id)
     .eq('prospecting_status', 'qualified')
-    .not('contact_phone', 'is', null)
     .neq('conversation_mode', 'human')
+    .or('contact_phone.not.is.null,contact_email.not.is.null,social_instagram.not.is.null')
     .order('ai_fit', { ascending: false })
     .limit(200);
+  // candidatos escolhidos: tem contato compatível com os canais da campanha
+  const wants = (c: string) => campaignChannels.length === 0 || campaignChannels.includes(c);
   const candidates = ((leadRows ?? []) as unknown as Array<{
-    id: string; name: string; contact_phone: string | null; ai_data: Record<string, unknown> | null;
-  }>).filter(l => normalizePhone(l.contact_phone));
+    id: string; name: string; contact_phone: string | null; contact_email: string | null; social_instagram: string | null; ai_data: Record<string, unknown> | null;
+  }>).filter(l =>
+    (wants('whatsapp') && normalizePhone(l.contact_phone)) ||
+    (wants('instagram') && l.social_instagram) ||
+    (wants('email') && (l.contact_email ?? '').includes('@')),
+  );
   if (candidates.length === 0) {
     await completeJob(admin, job.id, { note: 'Nenhum lead qualificado com telefone na fila do disparo', candidates: 0 });
     return;
@@ -516,8 +600,153 @@ async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow,
   });
 }
 
+/* ─── DESCOBERTA: roteia por fornecedor — Places / Firecrawl / auto ─── */
+async function processDiscovery(
+  admin: ReturnType<typeof serviceClient>,
+  job: JobRow,
+  settings: AgentSettings,
+  environment: string,
+  provider: string,
+): Promise<void> {
+  const hasPlaces = !!Deno.env.get('GOOGLE_PLACES_API_KEY');
+  const hasFirecrawl = !!Deno.env.get('FIRECRAWL_API_KEY');
+
+  const usePlaces =
+    provider === 'places' ||
+    (provider === 'auto' && (hasPlaces || !hasFirecrawl));
+
+  if (!usePlaces) {
+    await processDiscoveryFirecrawl(admin, job, settings, environment);
+    return;
+  }
+  try {
+    await processDiscoveryPlaces(admin, job, settings, environment);
+  } catch (e) {
+    if (provider === 'auto' && hasFirecrawl) {
+      console.error('[prospecting-run] Places falhou — fallback Firecrawl:', e);
+      await processDiscoveryFirecrawl(admin, job, settings, environment);
+      return;
+    }
+    throw e;
+  }
+}
+
+/* ─── DESCOBERTA: Firecrawl — busca web + scrape dos sites (sem Places) ─── */
+interface FirecrawlSearchDoc {
+  title?: string;
+  url?: string;
+  description?: string;
+  markdown?: string;
+}
+
+function extractBrazilPhones(text: string): string[] {
+  const out = new Set<string>();
+  const re = /\(?\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}|\+55\s?\d{10,13}/g;
+  for (const m of text.matchAll(re)) {
+    const digits = m[0].replace(/\D/g, '');
+    if (digits.length >= 10) out.add(digits);
+  }
+  return [...out];
+}
+
+function extractEmails(text: string): string[] {
+  const out = new Set<string>();
+  const re = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+  for (const m of text.matchAll(re)) {
+    if (/\.(png|jpe?g|webp|gif|css|js)$/i.test(m[0])) continue;
+    out.add(m[0].toLowerCase());
+  }
+  return [...out];
+}
+
+async function processDiscoveryFirecrawl(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string) {
+  const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!apiKey) throw new Error('FIRECRAWL_API_KEY não configurada (defina no Edge para descoberta via Firecrawl)');
+
+  const input = (job.input ?? {}) as { query?: string; segment?: string; location?: string };
+  const segment = input.segment ?? '';
+  const location = input.location ?? '';
+  const query = input.query || [segment, location].filter(Boolean).join(' ') + ' contato telefone site' || 'empresas contato';
+  const limit = Math.min(Math.ceil(settings.params.max_companies_per_run / 2), 10);
+
+  const res = await fetch('https://api.firecrawl.dev/v2/search', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      limit,
+      scrapeOptions: { formats: ['markdown'], onlyMainContent: true },
+    }),
+  });
+  if (!res.ok) throw new Error(`Firecrawl falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const body = (await res.json()) as { data?: { web?: FirecrawlSearchDoc[] } };
+  const docs = (body.data?.web ?? []).slice(0, settings.params.max_companies_per_run);
+
+  let created = 0;
+  let skipped = 0;
+  const details: Array<{ name: string; phone: string | null; email: string | null; url: string | null }> = [];
+
+  for (const doc of docs) {
+    const name = (doc.title ?? '').split(/[|\-–·]/)[0]?.trim();
+    const url = doc.url ?? null;
+    if (!name) { skipped++; continue; }
+    const content = `${doc.description ?? ''}\n${(doc.markdown ?? '').slice(0, 4000)}`;
+    const phones = extractBrazilPhones(content);
+    const emails = extractEmails(content);
+    if (phones.length === 0 && emails.length === 0) { skipped++; continue; }
+
+    const phone = phones[0] ?? null;
+    const email = emails.find(e => !/noreply|no-reply|webmaster|abuse/i.test(e)) ?? null;
+    if (!phone && !email) { skipped++; continue; }
+
+    // Dedupe por telefone OU nome exato dentro do ambiente
+    const filters: string[] = [];
+    if (phone) filters.push(`contact_phone.eq.${phone}`);
+    if (email) filters.push(`contact_email.eq.${email}`);
+    filters.push(`name.eq.${name.replace(/'/g, "''")}`);
+    const { data: existing } = await admin
+      .from('crm_leads')
+      .select('id')
+      .eq('environment', environment)
+      .or(filters.join(','))
+      .limit(1)
+      .maybeSingle();
+    if (existing) { skipped++; continue; }
+
+    const { data: nl, error: insErr } = await admin
+      .from('crm_leads')
+      .insert({
+        environment,
+        name,
+        contact_phone: phone,
+        contact_email: email,
+        source: 'firecrawl',
+        origin: 'prospecting_agent',
+        prospecting_status: 'discovered',
+        prospecting_campaign_id: job.campaign_id,
+        notes: url,
+      })
+      .select('id')
+      .single();
+    if (insErr) { console.error('[prospecting-run] criar lead firecrawl:', insErr.message); skipped++; continue; }
+
+    await logActivity(admin, nl.id as string, 'system', `Lead descoberto pelo agente via busca web (Firecrawl).`);
+    await admin.from('prospecting_jobs').insert({
+      campaign_id: job.campaign_id,
+      lead_id: nl.id as string,
+      type: 'score_company',
+      dedupe_key: nl.id as string,
+      input: { lead_id: nl.id },
+    });
+    details.push({ name, phone, email, url });
+    created++;
+  }
+
+  await completeJob(admin, job.id, { query, found: docs.length, created, skipped, details, provider: 'firecrawl' });
+}
+
 /* ─── DESCOBERTA: Google Places direto do Edge (sem n8n) ─── */
-async function processDiscovery(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string) {
+async function processDiscoveryPlaces(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string) {
   const apiKey = Deno.env.get('GOOGLE_PLACES_API_KEY');
   if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY não configurada (defina no Edge para o discovery funcionar)');
 
@@ -599,10 +828,9 @@ Deno.serve(async req => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
     if (req.method !== 'POST') return json(405, { error: 'Use POST' });
 
-    const workerSecret = Deno.env.get('WORKER_SECRET');
-    if (!workerSecret || req.headers.get('x-worker-secret') !== workerSecret) {
-      return json(401, { error: 'Worker secret invalido' });
-    }
+    const rawBody = await req.text();
+    const auth = await verifyWorker(req, rawBody);
+    if (!auth.ok) return json(auth.status, { error: auth.error });
 
     const admin = serviceClient();
 
@@ -765,10 +993,11 @@ Deno.serve(async req => {
       try {
         const { data: camp } = await admin
           .from('prospecting_campaigns')
-          .select('environment')
+          .select('environment, channels, discovery_provider')
           .eq('id', job.campaign_id)
           .maybeSingle();
         const environment = (camp as { environment?: string } | null)?.environment ?? 'sharks_company';
+        const channels = ((camp as { channels?: string[] | null } | null)?.channels ?? []) as string[];
         const settings = await loadSettings(admin, environment);
 
         if (job.type === 'analyze_company' || job.type === 'score_company') {
@@ -788,7 +1017,7 @@ Deno.serve(async req => {
           await processGeneration(admin, job, settings, environment);
           generated++;
         } else if (job.type === 'send_message') {
-          await processSend(admin, job, environment);
+          await processSend(admin, job, environment, channels);
           dispatched++;
         } else if (job.type === 'follow_up') {
           if (!hasRealGenerative()) {
@@ -799,10 +1028,11 @@ Deno.serve(async req => {
           await processFollowUp(admin, job, settings, environment);
           generated++;
         } else if (job.type === 'mass_dispatch') {
-          await processMass(admin, job, settings, environment);
+          await processMass(admin, job, settings, environment, channels);
           dispatched++; // coordenador conclui na hora (fila de sends é per-lead)
         } else if (job.type === 'discover_companies') {
-          await processDiscovery(admin, job, settings, environment);
+          const provider = (camp as { discovery_provider?: string } | null)?.discovery_provider ?? 'auto';
+          await processDiscovery(admin, job, settings, environment, provider);
           discovered++;
         } else {
           // I/O externo (enrich/send_message/follow_up) → n8n (F4)

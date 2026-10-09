@@ -247,8 +247,8 @@ test('edges de Instagram: OAuth in-app, DM com janela e ingest com token da cone
   assert.ok(connectFn.includes('isEnvAdmin'));
 
   const dm = await readFile(new URL('../supabase/functions/instagram-send-dm/index.ts', import.meta.url), 'utf8');
-  assert.ok(dm.includes('ig_sid'));
-  assert.ok(dm.includes('json(409'));
+  assert.ok(dm.includes('sendLeadInstagramDm'));
+  assert.ok(dm.includes("'no_window'"));
   assert.ok(dm.includes('ig.me/m/'));
   assert.ok(dm.includes('outreach_sent'));
 
@@ -415,7 +415,7 @@ test('n8n WH1: flow com endereco (webhook → valida → cerebro → envio → r
   }
   const brain = conv.nodes.find(n => n.name === 'Cerebro da Conversa (Edge)');
   assert.ok(brain.parameters.url.includes('prospecting-conversation'));
-  assert.ok(brain.parameters.jsonBody.includes('action'));
+  assert.ok(brain.parameters.jsonBody.includes('payloadStr'));
   const send = conv.nodes.find(n => n.name === 'Evolution Enviar Resposta');
   assert.ok(send.parameters.url.includes('sendAudio'));
   assert.ok(send.parameters.url.includes('sendMedia'));
@@ -546,7 +546,7 @@ test('worker: send real prepara to/message/audio e guarda humano/frio', async ()
   // send_message n�o � mais blind forward: processSend valida e enriquece
   assert.ok(worker.includes("job.type === 'send_message'"));
   assert.ok(worker.includes('processSend'));
-  assert.ok(worker.includes('input: { ...job.input, message, to, audio_url: audioUrl, channel'));
+  assert.ok(worker.includes('leadToPhone'));
   // coordenador de massa + regra semi_auto precisa do primeiro envio aprovado
   assert.ok(worker.includes("job.type === 'mass_dispatch'"));
   assert.ok(worker.includes('processMass'));
@@ -615,4 +615,123 @@ test('agenda: respons�veis por user_environments, conflito de hor�rio e TZ d
   assert.ok(cal.includes('updateMarco'));        // edi��o de marcos
   assert.ok(cal.includes("'reuniao_lead'"));     // r�tulo novo
   assert.ok(cal.includes('marcoEditOpen'));      // modal edit�vel
+});
+
+/* ---- LH-1 (WH4/M5): canais din�micos, Firecrawl, HMAC, Resend audio ---- */
+
+test('migration 079: provider de descoberta + voice fora dos canais', async () => {
+  const m = await readFile(new URL('../supabase/migrations/079_channels_dynamic.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('discovery_provider'));
+  assert.ok(m.includes("IN ('auto','places','firecrawl')"));
+  assert.ok(m.includes('array_remove(channels'));
+});
+
+test('shared auth: HMAC com janela de 5 Minutos e modo legacy', async () => {
+  const authTxt = await readFile(new URL('../supabase/functions/_shared/auth.ts', import.meta.url), 'utf8');
+  assert.ok(authTxt.includes('WORKER_SIGNING_KEY'));
+  assert.ok(authTxt.includes('t=(\\d+),v='));
+  assert.ok(authTxt.includes('REPLAY_WINDOW_MS'));
+  assert.ok(authTxt.includes('timingSafeEq'));
+  const three = await Promise.all(['prospecting-run', 'prospecting-conversation', 'prospecting-job-callback'].map(async f => {
+    const t = await readFile(new URL(`../supabase/functions/${f}/index.ts`, import.meta.url), 'utf8');
+    return t.includes('verifyWorker(req, rawBody)');
+  }));
+  assert.deepEqual(three, [true, true, true]);
+});
+
+test('worker: roteia descoberta (places/firecrawl/auto) e respeita demanda web', async () => {
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(worker.includes('processDiscovery('));
+  assert.ok(worker.includes('processDiscoveryFirecrawl'));
+  assert.ok(worker.includes('discovery_provider'));
+  assert.ok(worker.includes('api.firecrawl.dev/v2/search'));
+  assert.ok(worker.includes('extractBrazilPhones'));
+  assert.ok(worker.includes("source: 'firecrawl'"));
+});
+
+test('worker: send por canal (whatsapp via n8n, instagram DM, resend e-mail)', async () => {
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(worker.includes('sendViaWhatsapp'));
+  assert.ok(worker.includes('sendLeadInstagramDm'));
+  assert.ok(worker.includes('prospectionEmail('));
+  assert.ok(worker.includes('sendEmail({ to:'));
+  assert.ok(worker.includes('Nenhum canal envio do lead compat'));
+});
+
+test('callback: numero invalido descarta o lead e para follow-up', async () => {
+  const cb = await readFile(new URL('../supabase/functions/prospecting-job-callback/index.ts', import.meta.url), 'utf8');
+  assert.ok(cb.includes('lead_discarded: true'));
+  assert.ok(cb.includes('lost_reason'));
+  assert.ok(cb.includes('discarded'));
+});
+
+test('instagram compartilhado: send interno do worker sem JWT', async () => {
+  const ig = await readFile(new URL('../supabase/functions/_shared/instagram.ts', import.meta.url), 'utf8');
+  assert.ok(ig.includes('sendLeadInstagramDm'));
+  assert.ok(ig.includes('ig_sid'));
+  const edge = await readFile(new URL('../supabase/functions/instagram-send-dm/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes('isInternal'));
+  assert.ok(edge.includes('x-worker-secret'));
+});
+
+test('conversa: m�dia (audio/image/document/video) alimenta o cerebro', async () => {
+  const edge = await readFile(new URL('../supabase/functions/prospecting-conversation/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes('transcribeAudioEleven'));
+  assert.ok(edge.includes('scribe_v1'));
+  assert.ok(edge.includes('describeImageGlm'));
+  assert.ok(edge.includes('GLM_VISION_MODEL'));
+  assert.ok(edge.includes("media?.kind === 'audio'"));
+});
+
+test('UI: canais dinamicos com status e seletor de descoberta - voice removida', async () => {
+  const types = await readFile(new URL('../src/lib/prospecting/types.ts', import.meta.url), 'utf8');
+  assert.ok(types.includes("['whatsapp', 'instagram', 'email']"));
+  assert.ok(types.includes('DiscoveryProvider'));
+  assert.ok(!types.includes("'voice'"));
+  const form = await readFile(new URL('../src/components/prospecting/CampaignFormModal.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes('CHANNEL_READY'));
+  assert.ok(form.includes('Fonte de descoberta de leads'));
+  assert.ok(form.includes('useChannelStatus'));
+
+  const agent = await readFile(new URL('../src/components/prospecting/AgentPage.tsx', import.meta.url), 'utf8');
+  assert.ok(agent.includes('Firecrawl (busca web)'));
+  assert.ok(agent.includes('Resend (e-mail)'));
+
+  const statusEdge = await readFile(new URL('../supabase/functions/prospecting-status/index.ts', import.meta.url), 'utf8');
+  assert.ok(statusEdge.includes('firecrawl'));
+  assert.ok(statusEdge.includes('resend'));
+});
+
+test('n8n WH2: mídia + HMAC + mensagem com media valida', async () => {
+  const conv = JSON.parse(await readFile(new URL('../n8n/oracullo-conversation.json', import.meta.url), 'utf8'));
+  const names = conv.nodes.map(n => n.name);
+  for (const expected of ['Evolution Webhook', 'Normalizar Mensagem', 'Cerebro da Conversa (Edge)', 'Preparar Resposta', 'Evolution Enviar Resposta', 'Registrar Envio (Edge)']) {
+    assert.ok(names.includes(expected), `node ausente: ${expected}`);
+  }
+  assert.ok(names.includes('Assinar Cerebro'));
+  assert.ok(names.includes('IA respondeu?'));
+  const norm = conv.nodes.find(n => n.name === 'Normalizar Mensagem');
+  assert.ok(norm.parameters.jsCode.includes('audioMessage'));
+  assert.ok(norm.parameters.jsCode.includes('imageMessage'));
+  const sig = conv.nodes.find(n => n.name === 'Assinar Cerebro');
+  assert.equal(sig.parameters.encoding, 'base64');
+  const brain = conv.nodes.find(n => n.name === 'Cerebro da Conversa (Edge)');
+  assert.ok(brain.parameters.headerParameters.parameters.some(p => p.name === 'x-signature'));
+  const send = conv.nodes.find(n => n.name === 'Evolution Enviar Resposta');
+  assert.ok(send.parameters.url.includes('sendMedia'));
+});
+
+test('n8n Router: callback unico assinado (Preparar Callback → Assinar Callback → Edge)', async () => {
+  const router = JSON.parse(await readFile(new URL('../n8n/oracullo-router.json', import.meta.url), 'utf8'));
+  const names = router.nodes.map(n => n.name);
+  assert.ok(names.includes('Preparar Callback'));
+  assert.ok(names.includes('Assinar Callback'));
+  assert.ok(names.includes('Callback (Edge)'));
+  assert.ok(!names.includes('Callback WhatsApp'));
+  assert.ok(!names.includes('Callback Padr�o'));
+  const pre = router.nodes.find(n => n.name === 'Preparar Callback');
+  assert.ok(pre.parameters.jsCode.includes('payloadStr'));
+  const hmac = router.nodes.find(n => n.name === 'Assinar Callback');
+  assert.equal(hmac.parameters.type, 'SHA256');
+  assert.ok(hmac.parameters.value.includes('.'));
 });

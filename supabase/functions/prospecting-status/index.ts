@@ -29,6 +29,8 @@ Deno.serve(async req => {
       decision_ai: !!Deno.env.get('TYPESAFE_API_KEY'),
       generative_ai: !!Deno.env.get('GLM_API_KEY'),
       google_places: !!Deno.env.get('GOOGLE_PLACES_API_KEY'),
+      firecrawl: !!Deno.env.get('FIRECRAWL_API_KEY'),
+      resend: !!Deno.env.get('RESEND_API_KEY'),
       meta: !!Deno.env.get('META_APP_SECRET') && !!Deno.env.get('META_PAGE_TOKEN'),
       n8n: !!Deno.env.get('N8N_WEBHOOK_URL'),
       speech: hasRealSpeech(),
