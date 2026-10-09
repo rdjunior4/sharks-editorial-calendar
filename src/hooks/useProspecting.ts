@@ -238,7 +238,7 @@ export interface ApproachFeedItem {
   lead_id: string;
   type: 'outreach_draft' | 'outreach_sent' | 'reply_received';
   content: string;
-  metadata: { audio_url?: string; audio_provider?: string } | null;
+  metadata: { audio_url?: string; audio_path?: string; audio_provider?: string } | null;
   created_at: string;
   lead: { id: string; name: string; social_instagram: string | null } | null;
 }

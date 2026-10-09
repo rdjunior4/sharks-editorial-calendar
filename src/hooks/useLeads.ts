@@ -40,6 +40,12 @@ export interface Lead {
   ai_priority?: 'alta' | 'media' | 'baixa' | null;
   ai_next_step?: string | null;
   ai_analyzed_at?: string | null;
+  /** Conversa contínua do agente (migration 077) */
+  lead_temperature?: 'cold' | 'warm' | 'hot' | null;
+  conversation_mode?: 'ai' | 'human' | null;
+  escalation_reason?: string | null;
+  conversation_summary?: string | null;
+  jev_memory?: { message_count?: number; intents?: string[]; objections_handled?: string[] } | null;
 }
 
 export interface LeadActivity {
@@ -49,7 +55,7 @@ export interface LeadActivity {
   type: 'note' | 'call' | 'meeting' | 'email' | 'stage_change' | 'system'
     | 'outreach_draft' | 'outreach_sent' | 'reply_received';
   content: string;
-  metadata: { audio_url?: string } | null;
+  metadata: { audio_url?: string; audio_path?: string } | null;
   created_at: string;
   author: { id: string; full_name: string } | null;
 }

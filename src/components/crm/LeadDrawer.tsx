@@ -19,6 +19,7 @@ import { useInstagramConnection } from '@/hooks/useProspecting';
 import { IG_SEND_DM_EDGE } from '@/lib/prospecting/instagram';
 import { ENVIRONMENT_META } from '@/types';
 import { supabase } from '@/lib/supabase';
+import ProvisionedAudio from '@/components/ui/ProvisionedAudio';
 import Modal from '@/components/ui/Modal';
 
 const ACTIVITY_ICONS: Record<LeadActivity['type'], typeof StickyNote> = {
@@ -111,12 +112,50 @@ export default function LeadDrawer({
       <div className="space-y-5">
         {/* Banner do agente */}
       {lead.origin === 'prospecting_agent' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
-          <Bot className="w-4 h-4 text-amber-600 shrink-0" />
-          <p className="text-xs font-semibold text-amber-700">
-            Lead captado pelo Agente de Prospecção IA
-            {lead.prospecting_status ? ` — ${lead.prospecting_status.replace(/_/g, ' ')}` : ''}
-          </p>
+        <div className={cn(
+          'border rounded-lg p-3 space-y-1.5',
+          lead.conversation_mode === 'human' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200',
+        )}>
+          <div className="flex items-center gap-2">
+            <Bot className={cn('w-4 h-4 shrink-0', lead.conversation_mode === 'human' ? 'text-rose-600' : 'text-amber-600')} />
+            <p className={cn('text-xs font-semibold', lead.conversation_mode === 'human' ? 'text-rose-700' : 'text-amber-700')}>
+              Lead captado pelo Agente de Prospecção IA
+              {lead.prospecting_status ? ` — ${lead.prospecting_status.replace(/_/g, ' ')}` : ''}
+            </p>
+          </div>
+          {(lead.lead_temperature || lead.conversation_mode) && (
+            <div className="flex items-center gap-1.5 flex-wrap pl-6">
+              {lead.lead_temperature && (
+                <span className={cn(
+                  'px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                  lead.lead_temperature === 'hot' ? 'bg-red-100 text-red-700'
+                  : lead.lead_temperature === 'warm' ? 'bg-orange-100 text-orange-700'
+                  : 'bg-gray-100 text-gray-600',
+                )}>
+                  {lead.lead_temperature === 'hot' ? '🔥 Quente' : lead.lead_temperature === 'warm' ? '🌤️ Morno' : '❄️ Frio'}
+                </span>
+              )}
+              {lead.conversation_mode && (
+                <span className={cn(
+                  'px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                  lead.conversation_mode === 'human' ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700',
+                )}>
+                  {lead.conversation_mode === 'human' ? '👤 Humano respondendo' : '🤖 IA respondendo'}
+                </span>
+              )}
+              {(lead.jev_memory?.message_count ?? 0) > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600">
+                  💬 {lead.jev_memory!.message_count} msgs
+                </span>
+              )}
+            </div>
+          )}
+          {lead.conversation_mode === 'human' && lead.escalation_reason && (
+            <p className="text-[11px] text-rose-600 pl-6">🔔 Escalonado: {lead.escalation_reason}</p>
+          )}
+          {lead.conversation_summary && (
+            <p className="text-[11px] text-gray-500 pl-6 line-clamp-3">📝 {lead.conversation_summary}</p>
+          )}
         </div>
       )}
 
@@ -320,11 +359,8 @@ export default function LeadDrawer({
                         </span>
                       </div>
                       <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{a.content}</p>
-                      {a.metadata?.audio_url && (
-                        <div className="mt-1.5">
-                          <audio controls preload="none" src={a.metadata.audio_url} className="w-full h-8" />
-                        </div>
-                      )}
+                      {a.metadata?.audio_path && <ProvisionedAudio path={a.metadata.audio_path} className="w-full h-8" />}
+                      {!a.metadata?.audio_path && a.metadata?.audio_url && <ProvisionedAudio url={a.metadata.audio_url} className="w-full h-8" />}
                     </div>
                   </div>
                 );

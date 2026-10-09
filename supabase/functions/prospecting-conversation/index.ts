@@ -2,9 +2,10 @@
 // prospecting-conversation — cérebro da conversa do agente (WH-1)
 //
 // Chamado pelo n8n (Conversation flow) com x-worker-secret:
-//   action 'reply': mensagem do prospect → contexto rico (persona + ICP +
-//     produtos + assets + histórico) → GLM → resposta (+ áudio TTS se
-//     configurado). Dedupe por mid. Registra reply_received + status.
+//   action 'reply': mensagem do prospect → modo (ai/human) → rate-limit →
+//     contexto rico (persona + ICP + produtos + assets + memória) → GLM
+//     (saída JSON estruturada) → persiste memória → escalona/agenda/mídia
+//     → resposta (+ áudio TTS se configurado, signed URL). Dedupe por mid.
 //   action 'sent': confirmação do n8n após a Evolution enviar a resposta
 //     → registra outreach_sent na timeline.
 //   action 'error': falha no fluxo → registro silencioso (sem lead se
@@ -12,7 +13,7 @@
 // ==========================================
 
 import { serviceClient, corsHeaders } from '../_shared/google.ts';
-import { getGenerativeChatAI, hasRealGenerative, type CampaignICP, type AgentPersonality } from '../_shared/prospecting/ai.ts';
+import { getGenerativeChatAI, hasRealGenerative, type CampaignICP, type AgentPersonality, type LeadTemperature, type ConversationAction, type MediaIntent } from '../_shared/prospecting/ai.ts';
 import { getSpeechProvider, hasRealSpeech } from '../_shared/prospecting/speech.ts';
 import { normalizePhone } from '../_shared/prospecting/ingest.ts';
 
@@ -37,6 +38,16 @@ interface LeadRow {
   prospecting_status: string | null;
   prospecting_campaign_id: string | null;
   ai_data: Record<string, unknown> | null;
+  jev_memory: Record<string, unknown> | null;
+  lead_temperature: string | null;
+  conversation_summary: string | null;
+  conversation_mode: string | null;
+  assigned_human: string | null;
+  escalation_reason: string | null;
+  last_contact_at: string | null;
+  last_inbound_at: string | null;
+  rate_window_started_at: string | null;
+  rate_count: number | null;
 }
 
 async function findLead(
@@ -50,7 +61,7 @@ async function findLead(
   if (filters.length === 0) return null;
   const { data } = await admin
     .from('crm_leads')
-    .select('id, environment, name, segment, location, company_size, notes, contact_phone, social_instagram, prospecting_status, prospecting_campaign_id, ai_data')
+    .select('id, environment, name, segment, location, company_size, notes, contact_phone, social_instagram, prospecting_status, prospecting_campaign_id, ai_data, jev_memory, lead_temperature, conversation_summary, conversation_mode, assigned_human, escalation_reason, last_contact_at, last_inbound_at, rate_window_started_at, rate_count')
     .eq('environment', environment)
     .or(filters.join(','))
     .limit(1)
@@ -69,13 +80,112 @@ async function logActivity(admin: ReturnType<typeof serviceClient>, leadId: stri
   if (error) console.error('[conversation] atividade falhou:', error.message);
 }
 
+/* ─── Rate-limit por lead (janela de 1h, contador em colunas dedicadas) ─── */
+function checkRateLimit(lead: LeadRow, limitPerHour: number): { ok: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const windowStart = lead.rate_window_started_at ? new Date(lead.rate_window_started_at).getTime() : 0;
+  const count = lead.rate_count ?? 0;
+  if (!windowStart || now - windowStart >= 3600_000) return { ok: true }; // janela expirou
+  if (count >= limitPerHour) {
+    const retryAfterSec = Math.ceil((windowStart + 3600_000 - now) / 1000);
+    return { ok: false, retryAfterSec };
+  }
+  return { ok: true };
+}
+
+async function bumpRateCounter(admin: ReturnType<typeof serviceClient>, lead: LeadRow): Promise<void> {
+  const now = Date.now();
+  const windowStart = lead.rate_window_started_at ? new Date(lead.rate_window_started_at).getTime() : 0;
+  const expired = !windowStart || now - windowStart >= 3600_000;
+  await admin.from('crm_leads').update({
+    rate_window_started_at: expired ? new Date(now).toISOString() : lead.rate_window_started_at,
+    rate_count: expired ? 1 : (lead.rate_count ?? 0) + 1,
+  }).eq('id', lead.id);
+}
+
+/* ─── Persistência de memória do lead (3 camadas: fatos + resumo + histórico bruto) ─── */
+async function persistMemory(
+  admin: ReturnType<typeof serviceClient>,
+  lead: LeadRow,
+  memoryUpdate: { temperature?: LeadTemperature; intents?: string[]; objection_handled?: string | null; summary?: string | null } | undefined,
+  msgCount: number,
+): Promise<{ temperature: LeadTemperature; summary: string | null }> {
+  const cur = (lead.jev_memory ?? {}) as Record<string, unknown>;
+  const curIntents = Array.isArray(cur.intents) ? (cur.intents as string[]) : [];
+  const curObjections = Array.isArray(cur.objections_handled) ? (cur.objections_handled as string[]) : [];
+  const newIntents = memoryUpdate?.intents?.length
+    ? [...new Set([...curIntents, ...memoryUpdate.intents])].slice(-20)
+    : curIntents;
+  const newObjections = memoryUpdate?.objection_handled
+    ? [...new Set([...curObjections, memoryUpdate.objection_handled])].slice(-20)
+    : curObjections;
+  const temperature = memoryUpdate?.temperature ?? (lead.lead_temperature as LeadTemperature) ?? 'cold';
+  const summary = memoryUpdate?.summary ?? lead.conversation_summary ?? null;
+
+  const patch: Record<string, unknown> = {
+    jev_memory: {
+      ...cur,
+      intents: newIntents,
+      objections_handled: newObjections,
+      message_count: msgCount,
+      last_updated: new Date().toISOString(),
+    },
+    lead_temperature: temperature,
+    conversation_summary: summary,
+  };
+  await admin.from('crm_leads').update(patch).eq('id', lead.id);
+  return { temperature, summary };
+}
+
+/* ─── Mídia: escolhe asset do ambiente por media_intent ─── */
+async function pickMediaAsset(
+  admin: ReturnType<typeof serviceClient>,
+  environment: string,
+  productIdSet: Set<string>,
+  intent: MediaIntent,
+): Promise<{ url: string; title: string } | null> {
+  if (!intent) return null;
+  const typeMap: Record<string, string[]> = {
+    social_proof: ['prova_social', 'case', 'depoimento'],
+    product_image: ['imagem', 'portfolio', 'demo'],
+    pdf: ['pdf', 'material', 'apresentacao'],
+  };
+  const types = typeMap[intent] ?? [];
+  const toUrl = async (v: string): Promise<string | null> => {
+    if (/^https?:\/\//.test(v)) return v; // URL externa (não storage)
+    const signed = await admin.storage.from('agent-assets').createSignedUrl(v, 3600);
+    return signed.data?.signedUrl ?? null;
+  };
+  try {
+    let query = admin
+      .from('environment_assets')
+      .select('id, type, title, content, file_url, environment_asset_products(product_id)')
+      .eq('environment', environment)
+      .not('file_url', 'is', null);
+    if (types.length) query = query.in('type', types);
+    const { data: rows } = await query.limit(10);
+    const assets = (rows ?? []) as Array<{ file_url: string | null; title: string | null; environment_asset_products?: Array<{ product_id: string }> }>;
+    // prioriza asset vinculado a produto da campanha
+    const linked = assets.find(a => (a.environment_asset_products ?? []).some(p => productIdSet.has(p.product_id)) && a.file_url);
+    const any = assets.find(a => a.file_url);
+    const chosen = linked ?? any;
+    if (!chosen?.file_url) return null;
+    const url = await toUrl(chosen.file_url);
+    return url ? { url, title: chosen.title ?? intent } : null;
+  } catch (e) {
+    console.error('[conversation] pickMediaAsset falhou:', e);
+    return null;
+  }
+}
+
 async function loadAgentContext(admin: ReturnType<typeof serviceClient>, lead: LeadRow) {
   const settingsRow = await admin
     .from('prospecting_agent_settings')
-    .select('personality, params')
+    .select('personality, params, jev_config')
     .eq('environment', lead.environment)
     .maybeSingle();
   const personality = (settingsRow.data as { personality?: object } | null)?.personality ?? {};
+  const jevConfig = ((settingsRow.data as { jev_config?: Record<string, unknown> } | null)?.jev_config ?? {}) as Record<string, unknown>;
 
   let campaignName: string | undefined;
   let icp: CampaignICP | undefined;
@@ -138,10 +248,10 @@ async function loadAgentContext(admin: ReturnType<typeof serviceClient>, lead: L
     .map(a => `${a.type === 'outreach_sent' ? 'enviada' : a.type === 'reply_received' ? 'recebida' : 'registro'}: ${a.content.slice(0, 160)}`)
     .reverse();
 
-  return { personality, campaignName, icp, products, assets, history };
+  return { personality, campaignName, icp, products, assets, history, jevConfig, productIdSet };
 }
 
-/* ─── Voz: mesma esteira do rascunho (agent-voice) ─── */
+/* ─── Voz: mesma esteira do rascunho (agent-voice) — signed URL (bucket privado) ─── */
 async function synthesizeReply(
   admin: ReturnType<typeof serviceClient>,
   lead: LeadRow,
@@ -162,7 +272,9 @@ async function synthesizeReply(
       console.error('[conversation] upload voz:', up.error.message);
       return null;
     }
-    return admin.storage.from('agent-voice').getPublicUrl(path).data.publicUrl;
+    // bucket é privado → signed URL de 1h para o n8n enviar via Evolution
+    const signed = await admin.storage.from('agent-voice').createSignedUrl(path, 3600);
+    return signed.data?.signedUrl ?? null;
   } catch (e) {
     console.error('[conversation] TTS falhou (seguindo em texto):', e);
     return null;
@@ -242,12 +354,44 @@ Deno.serve(async req => {
       await admin.from('crm_leads').update({ prospecting_status: 'replied' }).eq('id', lead.id);
     }
 
+    // ── Modo conversa: human → não responde com IA ──
+    const conversationMode = lead.conversation_mode ?? 'ai';
+    if (conversationMode === 'human') {
+      return json(200, {
+        ok: true,
+        mode: 'human',
+        action: 'skip',
+        note: 'Conversa em modo humano — agente IA não respondeu.',
+        lead_id: lead.id,
+        environment,
+      });
+    }
+
+    // ── Rate-limit por lead ──
+    const ctx = await loadAgentContext(admin, lead);
+    const limitPerLead = Number(ctx.jevConfig.rate_limit_per_lead_per_hour ?? 20);
+    const rl = checkRateLimit(lead, limitPerLead);
+    if (!rl.ok) {
+      return json(429, {
+        ok: false,
+        error: 'rate_limited',
+        retry_after_sec: rl.retryAfterSec ?? 3600,
+        lead_id: lead.id,
+      });
+    }
+
     if (!hasRealGenerative()) {
       await logActivity(admin, lead.id, 'system', 'Falha ao gerar resposta: GLM não configurado.');
       return json(200, { ok: false, error: 'GLM não configurado — defina GLM_API_KEY no Edge' });
     }
 
-    const ctx = await loadAgentContext(admin, lead);
+    // ── Memória do lead ──
+    const mem = (lead.jev_memory ?? {}) as Record<string, unknown>;
+    const msgCount = Number(mem.message_count ?? 0) + 1;
+    const summaryRefreshEvery = Number(ctx.jevConfig.summary_refresh_every_n_messages ?? 5);
+    const refreshSummary = msgCount % summaryRefreshEvery === 0;
+
+    // ── GLM (saída JSON estruturada) ──
     const result = await getGenerativeChatAI().generateConversation({
       lead: { name: lead.name, segment: lead.segment, location: lead.location, company_size: lead.company_size, notes: lead.notes },
       campaignName: ctx.campaignName,
@@ -257,15 +401,68 @@ Deno.serve(async req => {
       assets: ctx.assets,
       conversationHistory: ctx.history,
       incomingMessage: text,
+      memory: {
+        temperature: (lead.lead_temperature as LeadTemperature) ?? 'cold',
+        intents: Array.isArray(mem.intents) ? (mem.intents as string[]) : undefined,
+        objections_handled: Array.isArray(mem.objections_handled) ? (mem.objections_handled as string[]) : undefined,
+        summary: lead.conversation_summary ?? null,
+        message_count: msgCount - 1,
+      },
+      refreshSummary,
     });
 
+    // ── Persiste memória ──
+    const memSaved = await persistMemory(admin, lead, result.memory, msgCount);
+    await bumpRateCounter(admin, lead);
+    await admin.from('crm_leads').update({ last_contact_at: new Date().toISOString(), last_inbound_at: new Date().toISOString() }).eq('id', lead.id);
+
+    // ── Áudio (signed URL) ──
     const audioUrl = await synthesizeReply(admin, lead, result.message, ctx.personality, environment);
+
+    // ── Mídia rica (media_intent → asset do ambiente) ──
+    let media: { url: string; title: string } | null = null;
+    if (result.media_intent) {
+      media = await pickMediaAsset(admin, environment, ctx.productIdSet, result.media_intent);
+    }
+
+    // ── Escalonamento / agendamento ──
+    const convAction: ConversationAction = result.action ?? 'continue';
+    const escalateThreshold = Number(ctx.jevConfig.escalate_score_threshold ?? 81);
+    let escalated = false;
+    let scheduled = false;
+    if (convAction === 'escalate') {
+      escalated = true;
+      await admin.from('crm_leads').update({
+        conversation_mode: 'human',
+        assigned_human: null,
+        escalation_reason: result.escalate_reason ?? 'GLM sinalizou escalonamento',
+      }).eq('id', lead.id);
+      await logActivity(admin, lead.id, 'system', `🔔 Escalonado para humano: ${result.escalate_reason ?? 'sem motivo detalhado'}`);
+    } else if (convAction === 'schedule_meeting') {
+      scheduled = true;
+      await logActivity(admin, lead.id, 'system', '📅 Lead pediu agendamento — sugerir slots e criar evento no calendário.');
+    }
+
+    // ── Atualiza score JEV de forma leve (se score existe, marca temperatura) ──
+    // (score JEV completo continua sendo feito pelo worker de discovery/qualificação)
 
     return json(200, {
       ok: true,
       lead_id: lead.id,
+      mode: 'ai',
       reply: result.message,
       audio_url: audioUrl,
+      media_url: media?.url ?? null,
+      media_title: media?.title ?? null,
+      action: convAction,
+      escalated,
+      scheduled,
+      escalate_reason: result.escalate_reason ?? null,
+      memory: {
+        temperature: memSaved.temperature,
+        message_count: msgCount,
+        summary: memSaved.summary,
+      },
       mid,
       environment,
     });
