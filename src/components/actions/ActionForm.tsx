@@ -191,7 +191,8 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
       const { data: envIds } = await supabase
         .from('user_environments')
         .select('user_id')
-        .eq('environment', environment);
+        .eq('environment', environment)
+        .in('role', ['admin', 'team']);
       const ids = (envIds ?? []).map(r => r.user_id).filter(Boolean);
       if (ids.length === 0) { if (active) setTeamMembers([]); return; }
       const { data: users, error } = await supabase
