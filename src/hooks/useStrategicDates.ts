@@ -57,7 +57,15 @@ export async function loadStrategicDates(workspaceId?: string | null, force = fa
 
 export function getStrategicDates(workspaceId?: string | null): StrategicDate[] {
   if (workspaceId) return store.filter(d => d.workspace_id === workspaceId);
-  return store;
+  // God-view (sem workspace): dedupe por título+data — 18 workstores têm a
+  // MESMA data nacional replicada; calendário central mostra cada uma 1x.
+  const seen = new Set<string>();
+  return store.filter(d => {
+    const key = `${d.title}|${d.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function ensureChannel(): void {
