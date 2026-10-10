@@ -889,7 +889,7 @@ test('datas estrategicas: god-view dedupe por titulo+data e unique por workspace
   assert.ok(hook.includes("key = `${d.title}|${d.date}`"));
   const m = await readFile(new URL('../supabase/migrations/082_strategic_dates_unique.sql', import.meta.url), 'utf8');
   assert.ok(m.includes('uq_strategic_dates_ws_title_date'));
-  assert.ok(m.includes('maintém a mais antiga') || m.includes('mantém a mais antiga') || m.includes('mantem a mais antiga') || m.includes('mais antiga'));
+  assert.ok(m.includes('maintï¿½m a mais antiga') || m.includes('mantï¿½m a mais antiga') || m.includes('mantem a mais antiga') || m.includes('mais antiga'));
 });
 
 test('migration 083: FKs de produto repontadas para environment_products', async () => {
@@ -900,4 +900,12 @@ test('migration 083: FKs de produto repontadas para environment_products', async
   assert.ok(m.includes('action_products_product_id_fkey'));
   assert.ok(m.includes('ON DELETE SET NULL'));
   assert.ok(m.includes('lower(ep.name) = lower(p.name)'));
+});
+
+test('embeds de aï¿½ï¿½es apontam para o catalogo novo (FIX pos-083)', async () => {
+  const s = await readFile(new URL('../src/lib/actionService.ts', import.meta.url), 'utf8');
+  assert.ok(s.includes('product_ref:environment_products!actions_product_id_fkey'));
+  assert.ok(s.includes('product:environment_products!action_products_product_id_fkey'));
+  assert.ok(s.includes(':products!') === false);
+  assert.ok(s.includes('image_url') === false);
 });
