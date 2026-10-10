@@ -604,7 +604,7 @@ test('UI: aprovar no feed, disparar no card e oferta no form', async () => {
 test('agenda: respons�veis por user_environments, conflito de hor�rio e TZ da agenda', async () => {
   const form = await readFile(new URL('../src/components/actions/ActionForm.tsx', import.meta.url), 'utf8');
   assert.ok(form.includes("from('user_environments')"));
-  assert.ok(form.includes('.in(') === false || form.includes("in('role'") === false);
+  assert.ok(form.includes(".in('role', ['admin', 'team'])"));
   assert.ok(form.includes('Conflito de hor'));
 
   const ld = await readFile(new URL('../src/lib/localDate.ts', import.meta.url), 'utf8');
