@@ -67,7 +67,7 @@ export type ActionStatus = 'draft' | 'briefing' | 'in_production' | 'sharks_revi
 
 export type ActionType = 'content' | 'campaign' | 'production' | 'recording' | 'photo_session' | 'approval' | 'publication' | 'ad' | 'crm' | 'whatsapp' | 'email' | 'event' | 'meeting' | 'strategic_date' | 'commercial' | 'other' | 'implementation' | 'milestone' | 'onboarding' | 'review' | 'follow_up' | 'strategy' | 'training';
 
-export type ContentFormat = 'reels' | 'story' | 'story_sequence' | 'carousel' | 'static_post' | 'photo' | 'video' | 'live' | 'whatsapp' | 'whatsapp_status' | 'email_marketing' | 'newsletter' | 'landing_page' | 'blog' | 'youtube' | 'ad' | 'commercial_material' | 'other';
+export type ContentFormat = 'reels' | 'story' | 'story_sequence' | 'carousel' | 'static_post' | 'photo' | 'video' | 'animation' | 'live' | 'whatsapp' | 'whatsapp_status' | 'email_marketing' | 'newsletter' | 'landing_page' | 'blog' | 'youtube' | 'ad' | 'commercial_material' | 'other';
 
 export type FormatFrequencyZone = 'feed' | 'story' | 'reels';
 export type FormatFrequency = Partial<Record<FormatFrequencyZone, number>>;
