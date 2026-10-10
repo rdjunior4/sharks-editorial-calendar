@@ -875,3 +875,10 @@ test('n8n Router final: sem BrasilAPI/enrich (M2 e local no Edge), so send_messa
   assert.equal(c['Tipo de Job'].main[0][0].node, 'Preparar Envio');
   assert.equal(c['Tipo de Job'].main[1][0].node, 'Default Resultado');
 });
+
+test('form da agenda: produtos do catalogo novo (environment_products) por ambiente', async () => {
+  const form = await readFile(new URL('../src/components/actions/ActionForm.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes("from('environment_products')"));
+  assert.ok(form.includes("eq('environment', environment)"));
+  assert.ok(form.includes("from('products')") === false);
+});
