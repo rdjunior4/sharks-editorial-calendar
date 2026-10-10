@@ -534,6 +534,25 @@ Deno.serve(async req => {
         escalation_reason: result.escalate_reason ?? 'GLM sinalizou escalonamento',
       }).eq('id', lead.id);
       await logActivity(admin, lead.id, 'system', `🔔 Escalonado para humano: ${result.escalate_reason ?? 'sem motivo detalhado'}`);
+
+      // Notifica o staff do ambiente (lead_escalated, migration 081)
+      try {
+        const { data: staff } = await admin
+          .from('user_environments')
+          .select('user_id')
+          .eq('environment', environment);
+        const userIds = (staff ?? []).map(s => s.user_id).filter(Boolean);
+        if (userIds.length > 0) {
+          await admin.from('notifications').insert(userIds.map((uid: string) => ({
+            user_id: uid,
+            title: '🔔 Lead escalado para humano',
+            message: `${lead.name}: ${result.escalate_reason ?? 'o agente sinalizou escalonamento'} — assuma a conversa no CRM.`.slice(0, 500),
+            type: 'lead_escalated' as const,
+          })));
+        }
+      } catch (nErr) {
+        console.error('[conversation] notificação de escalonamento falhou:', nErr);
+      }
     } else if (convAction === 'schedule_meeting') {
       scheduled = true;
       // Marco real na agenda do ambiente (kind reuniao_lead, migration 078) —
