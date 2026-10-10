@@ -229,7 +229,7 @@ export default function CrmBoard({ environment, canDelete = false, showEnv = fal
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="py-10">
           <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
         </div>
       ) : tab === 'pipeline' ? (

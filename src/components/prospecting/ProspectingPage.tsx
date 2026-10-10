@@ -118,11 +118,11 @@ export default function CampaignsSection({ environment }: ProspectingPageProps) 
 
       {/* Lista de campanhas */}
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="py-6">
           <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
         </div>
       ) : campaigns.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="py-6">
           <Card padding="md">
             <EmptyState
               icon={Radar}
@@ -143,7 +143,7 @@ export default function CampaignsSection({ environment }: ProspectingPageProps) 
             const status = CAMPAIGN_STATUS_META[c.status];
             const cCount = metrics.byCampaign[c.id] ?? { found: 0, qualified: 0 };
             return (
-              <Card key={c.id} className="p-4">
+              <Card key={c.id} className="p-3.5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">

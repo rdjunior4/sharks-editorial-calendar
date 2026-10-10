@@ -70,7 +70,7 @@ export default function Drawer({ isOpen, onClose, title, children, width = 'md' 
             <X className="w-4 h-4" />
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6">{children}</div>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );

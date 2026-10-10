@@ -95,7 +95,7 @@ export default function SharksSettings() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Configurações" subtitle="Preferências da sua conta" />
 
       {/* Perfil */}

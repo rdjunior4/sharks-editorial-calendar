@@ -36,7 +36,7 @@ export default function SharksClients() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <PageHeader
           title="Clientes"
@@ -65,7 +65,7 @@ export default function SharksClients() {
             </span>
             <span className="flex-1 h-px bg-gray-100" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {workspaces.map(ws => {
               const location = [ws.city, ws.state].filter(Boolean).join(', ');
               const segment = (ws.segment ?? '').trim();

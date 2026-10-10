@@ -89,7 +89,7 @@ export default function SharksChat() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 grid-rows-[1fr] gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3  gap-4 flex-1 min-h-0">
         {!isMobile && (
           <Card padding="sm" className="lg:col-span-1 h-full flex flex-col min-h-0 overflow-hidden">
             <h3 className="font-semibold text-gray-900 mb-3 px-2 shrink-0">Clientes</h3>
@@ -129,7 +129,7 @@ export default function SharksChat() {
           </Card>
         )}
 
-        <div className="lg:col-span-2 h-full min-h-[350px]">
+        <div className="lg:col-span-2 h-full min-h-0">
           {!activeWsId ? (
             <Card padding="sm" className="h-full flex items-center justify-center">
               <EmptyState

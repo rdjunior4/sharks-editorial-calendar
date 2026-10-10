@@ -34,7 +34,7 @@ export default function Card({ children, className, hover, padding = 'md', onCli
 
 export function CardHeader({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-between mb-4', className)}>
+    <div className={cn('flex items-center justify-between mb-3', className)}>
       {children}
     </div>
   );

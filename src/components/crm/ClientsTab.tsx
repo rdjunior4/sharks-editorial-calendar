@@ -19,7 +19,7 @@ export default function ClientsTab({ leads, agendaClients, showEnv, onOpenLead }
 
   if (agendaClients.length === 0 && converted.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="py-10">
         <div className="w-full max-w-md">
           <EmptyState
             icon={Building2}

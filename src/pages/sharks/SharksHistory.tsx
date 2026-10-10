@@ -43,7 +43,7 @@ export default function SharksHistory() {
   }, [actions, filters]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Histórico" subtitle="Consulte todas as ações passadas" />
 
       {/* Filters */}
@@ -100,12 +100,12 @@ export default function SharksHistory() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 text-left">
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Data</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Conteúdo</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Formato</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Cliente</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Responsável</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Data</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Conteúdo</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Formato</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Cliente</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Responsável</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -113,30 +113,30 @@ export default function SharksHistory() {
                   const ws = workspaces.find(w => w.id === action.workspace_id);
                   return (
                     <tr key={action.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-sm text-gray-500 whitespace-nowrap">
                         {formatDate(action.action_date)}
                         {action.action_time && (
                           <span className="text-xs text-gray-400 ml-1">{formatTime(action.action_time)}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-[300px] truncate">
+                      <td className="px-4 py-2.5 text-sm font-medium text-gray-900 max-w-[300px] truncate">
                         {action.title}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">
+                      <td className="px-4 py-2.5 text-sm text-gray-500 hidden md:table-cell">
                         {action.format ? CONTENT_FORMATS[action.format] : '—'}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 hidden lg:table-cell">{ws?.name}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5 text-sm text-gray-500 hidden lg:table-cell">{ws?.name}</td>
+                      <td className="px-4 py-2.5">
                         <StatusBadge status={action.status} size="sm" />
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 hidden lg:table-cell">—</td>
+                      <td className="px-4 py-2.5 text-sm text-gray-500 hidden lg:table-cell">—</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
+          <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-400">
             {filtered.length} ação(ões) encontrada(s)
           </div>
         </Card>

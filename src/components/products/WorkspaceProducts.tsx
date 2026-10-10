@@ -114,7 +114,7 @@ export default function WorkspaceProducts() {
           <EmptyState icon={Package} title="Selecione um cliente" description="Escolha um cliente para gerenciar o catálogo de produtos." />
         </Card>
       ) : loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
       ) : filtered.length === 0 ? (
         <Card>
           <EmptyState icon={Package} title="Nenhum produto" description="Cadastre produtos para vinculá-los às ações." />

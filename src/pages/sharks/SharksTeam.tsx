@@ -262,7 +262,7 @@ export default function SharksTeam() {
 
   /* ─── Render ─── */
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <PageHeader title="Time de Produção" subtitle="Gerencie membros, permissões e acesso aos clientes" />
@@ -276,7 +276,7 @@ export default function SharksTeam() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-10">
           <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin" />
         </div>
       ) : members.length === 0 ? (
@@ -608,7 +608,7 @@ export default function SharksTeam() {
 
       {/* ═══════ EDIT MODAL ═══════ */}
       <Modal isOpen={editOpen} onClose={() => setEditOpen(false)} title={`Editar: ${editingMember?.full_name}`} size="lg">
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Basic info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input

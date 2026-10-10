@@ -128,12 +128,12 @@ export default function DashboardOverview({
   }, [selectedDate, isSelectedToday]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <PageHeader title={<>{title}</>} subtitle={<>{formatDate(today)} — {subtitle}</>} />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {stats.map(s => (
           <StatsCard
             key={s.label}
@@ -300,7 +300,7 @@ export default function DashboardOverview({
       {showClientsSection && (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Clientes</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {workspaces.map(ws => {
               const wsActions = allActions.actions.filter(a => a.workspace_id === ws.id);
               const wsPending = wsActions.filter(a => ['draft', 'briefing'].includes(a.status)).length;

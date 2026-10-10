@@ -189,7 +189,7 @@ export default function PartnersPage({ environment }: { environment: CrmEnvironm
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center py-10">
+        <div className="py-6">
           <Loading />
         </div>
       ) : filtered.length === 0 ? (
@@ -203,7 +203,7 @@ export default function PartnersPage({ environment }: { environment: CrmEnvironm
       ) : (
         <div className="space-y-2">
           {filtered.map(p => (
-            <Card key={p.id} className="p-4">
+            <Card key={p.id} className="p-3.5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">

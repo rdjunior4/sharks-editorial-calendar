@@ -233,7 +233,7 @@ export default function SharksIntegrations() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Integrações" subtitle="Conecte ferramentas externas ao seu fluxo" />
 
       {/* SINALIZADOR: integracao ATIVA */}

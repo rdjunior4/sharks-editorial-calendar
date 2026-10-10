@@ -47,12 +47,12 @@ export default function OraculloUsers() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Usuários" subtitle="Todos os usuários da plataforma Oracullo" />
 
       <Card>
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
+          <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
         ) : (
           <div className="divide-y divide-gray-100">
             {users.map(u => {
