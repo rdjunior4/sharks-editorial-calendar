@@ -18,7 +18,8 @@ import { formatCalendarDate, addDays, startOfWeek, parseISO, format } from '@/li
 import { ACTION_TYPES, CONTENT_FORMATS, OBJECTIVES, FUNNEL_STAGES, ACTION_STATUSES, ACTION_TYPES_BY_ENV, FORM_SECTIONS_BY_ENV, DEFAULT_CHANNELS } from '@/lib/constants';
 import { toast } from 'sonner';
 import ChipMultiSelect from '@/components/ui/ChipMultiSelect';
-import { CalendarDays } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { CalendarDays, Check } from 'lucide-react';
 
 interface ActionFormProps {
   action: Action | null;
@@ -52,6 +53,7 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
     action_type: 'content' as ActionType,
     format: '' as string,
     channel: '',
+    channels: [] as string[],
     campaign_id: '' as string,
     editorial_pillar_id: '' as string,
     objective: '' as string,
@@ -131,6 +133,7 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
         action_type: formData.action_type,
         format: (formData.format || null) as ContentFormat | null,
         channel: formData.channel || null,
+        channels: formData.channels,
         campaign_id: formData.campaign_id || null,
         editorial_pillar_id: formData.editorial_pillar_id || null,
         objective: (formData.objective || null) as Objective | null,
@@ -237,6 +240,7 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
           action_type: action.action_type || (environment === 'estrategos' ? 'meeting' : 'content') as ActionType,
           format: action.format || '',
           channel: action.channel || '',
+          channels: (action.channels?.length ? action.channels : []) ?? [],
           campaign_id: action.campaign_id || '',
           editorial_pillar_id: action.editorial_pillar_id || '',
           objective: action.objective || '',
@@ -269,6 +273,7 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
           action_type: environment === 'estrategos' ? 'meeting' : 'content',
           format: '',
           channel: '',
+          channels: [] as string[],
           campaign_id: '',
           editorial_pillar_id: '',
           objective: '',
@@ -291,7 +296,7 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
     }
   }, [action, isOpen, defaultDate, workspaceId]);
 
-  const handleChange = (field: string, value: string) => {
+  const handleChange = (field: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -522,20 +527,50 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
                 placeholder="Selecione"
                 options={Object.entries(CONTENT_FORMATS).map(([v, l]) => ({ value: v, label: l }))}
               />
-              <Select
-                label="Canal"
-                value={formData.channel}
-                onChange={(e) => handleChange('channel', e.target.value)}
-                placeholder="Selecione"
-                options={[
-                  { value: '', label: 'Sem canal' },
-                  ...DEFAULT_CHANNELS.map(c => ({ value: c.name, label: c.name })),
-                  // Preserva canal legado não listado ao editar
-                  ...(formData.channel && !DEFAULT_CHANNELS.some(c => c.name === formData.channel)
-                    ? [{ value: formData.channel, label: `${formData.channel} (atual)` }]
-                    : []),
-                ]}
-              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Canais (múltipla escolha)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {[...DEFAULT_CHANNELS.map(c => c.name),
+                  // preserva canal legado não listado
+                  ...(formData.channel && formData.channels.length === 0 ? [formData.channel] : []),
+                ]
+                  .filter((n, i, a) => a.indexOf(n) === i)
+                  .map(name => {
+                    const selected = formData.channels.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => {
+                          const next = selected
+                            ? formData.channels.filter(c => c !== name)
+                            : [...formData.channels, name];
+                          handleChange('channels', next);
+                          // compat: 1º canal mantém a coluna single
+                          handleChange('channel', next[0] ?? '');
+                        }}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors',
+                          selected
+                            ? 'bg-primary-50 border-primary-300 text-primary-700'
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300',
+                        )}
+                      >
+                        <span className={cn(
+                          'w-3.5 h-3.5 rounded-full border flex items-center justify-center',
+                          selected ? 'border-primary-500 bg-primary-500' : 'border-gray-300',
+                        )}>
+                          {selected && <Check className="w-2.5 h-2.5 text-white" />}
+                        </span>
+                        {name}
+                      </button>
+                    );
+                  })}
+              </div>
+              {formData.channels.length === 0 && (
+                <p className="text-[11px] text-gray-400 mt-1">Sem canais — a ação fica sem distribuição marcada.</p>
+              )}
             </div>
             <Input
               label="Tema"
