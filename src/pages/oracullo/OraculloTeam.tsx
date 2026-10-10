@@ -444,7 +444,7 @@ export default function OraculloTeam() {
 
   /* ─── Render ─── */
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <PageHeader title="Time" subtitle="Gerencie membros e permissões em todos os ambientes" />
@@ -483,7 +483,7 @@ export default function OraculloTeam() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-10">
           <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin" />
         </div>
       ) : filteredMembers.length === 0 ? (
@@ -892,7 +892,7 @@ export default function OraculloTeam() {
 
       {/* ═══════ EDIT MODAL ═══════ */}
       <Modal isOpen={editOpen} onClose={() => setEditOpen(false)} title={`Editar: ${editingMember?.full_name}`} size="lg">
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Basic info */}
           <Input
             label="Nome completo"

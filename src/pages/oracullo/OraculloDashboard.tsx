@@ -74,10 +74,10 @@ export default function OraculloDashboard() {
   const envLabel = (env: EnvironmentType) => env === 'sharks_company' ? 'Sharks' : 'Estrategos';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Oracullo Calendar" subtitle={<>{formatDate(today)} — Governança dos ambientes</>} />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatsCard icon={Users} label="Usuários" value={users.length} />
         <StatsCard icon={Building2} label="Workspaces" value={wsCount.sharks + wsCount.estrategos} />
         <StatsCard icon={CalendarDays} label="Ações total" value={actions.length} />
@@ -124,7 +124,7 @@ export default function OraculloDashboard() {
           </div>
         </CardHeader>
         {selectedDayActions.length === 0 ? (
-          <div className="py-8 text-center">
+          <div className="py-6 text-center">
             <CalendarDays className="w-10 h-10 text-gray-300 mx-auto mb-2" />
             <p className="text-sm text-gray-500">
               {isSelectedToday ? 'Nenhuma ação para hoje' : 'Nenhuma ação neste dia'}
@@ -173,7 +173,7 @@ export default function OraculloDashboard() {
           </CardTitle>
           <span className="text-xs text-gray-400">visao consolidada</span>
         </CardHeader>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <div className="grid grid-cols-2 gap-3 lg:col-span-1">
             <div className="bg-gray-50 rounded-lg p-3 text-center">
               <p className="text-xl font-bold text-gray-900">{wsCount.sharks + wsCount.estrategos}</p>

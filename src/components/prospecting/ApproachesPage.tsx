@@ -87,7 +87,7 @@ export default function ApproachesSection({ environment }: ApproachesPageProps) 
 
       {/* Feed */}
       {items.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="py-6">
           <Card padding="md" className="w-full max-w-md">
             <EmptyState
               icon={Radio}

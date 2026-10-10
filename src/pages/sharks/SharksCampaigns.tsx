@@ -108,7 +108,7 @@ export default function SharksCampaigns() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <PageHeader title="Campanhas" subtitle={<>{currentWorkspace ? `Campanhas de ${currentWorkspace.name}` : 'Selecione um cliente para ver as campanhas'}</>} />
         {currentWorkspace && (
@@ -133,7 +133,7 @@ export default function SharksCampaigns() {
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {campaigns.map(c => {
             const isActive = c.status === 'active';
             return (
@@ -141,7 +141,7 @@ export default function SharksCampaigns() {
                 {/* Barra de cor no topo */}
                 <div className="h-1.5 w-full rounded-t-lg -mt-px" style={{ backgroundColor: c.color || '#0066FF' }} />
 
-                <div className="flex items-start justify-between mb-3 mt-1">
+                <div className="flex items-start justify-between mb-2 mt-1">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${c.color || '#0066FF'}20` }}>
                       <Megaphone className="w-5 h-5" style={{ color: c.color || '#0066FF' }} />
@@ -155,7 +155,7 @@ export default function SharksCampaigns() {
                 </div>
 
                 {/* Metadados */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400 mb-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400 mb-2">
                   {c.start_date && (
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
@@ -174,7 +174,7 @@ export default function SharksCampaigns() {
                 </div>
 
                 {/* Ações */}
-                <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2 pt-2.5 border-t border-gray-100">
                   <Button variant="ghost" size="sm" onClick={() => openEdit(c)} className="text-gray-600">
                     <Pencil className="w-3.5 h-3.5 mr-1" /> Editar
                   </Button>
@@ -201,12 +201,12 @@ export default function SharksCampaigns() {
         <div className="space-y-4">
           <Input label="Nome *" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Campanha Dia dos Pais" />
           <Input label="Objetivo" value={formData.objective} onChange={e => setFormData(p => ({ ...p, objective: e.target.value }))} placeholder="Ex: Aumentar vendas" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Início" type="date" value={formData.start_date} onChange={e => setFormData(p => ({ ...p, start_date: e.target.value }))} />
             <Input label="Fim" type="date" value={formData.end_date} onChange={e => setFormData(p => ({ ...p, end_date: e.target.value }))} />
           </div>
           <Textarea label="Descrição" value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Público" value={formData.audience} onChange={e => setFormData(p => ({ ...p, audience: e.target.value }))} />
             <Input label="Produto" value={formData.product} onChange={e => setFormData(p => ({ ...p, product: e.target.value }))} />
           </div>

@@ -17,12 +17,13 @@ interface StatsCardProps {
 export default function StatsCard({ icon: Icon, label, value, trend, trendUp, iconBg = 'bg-primary-50 text-primary-600', className, onClick }: StatsCardProps) {
   return (
     <Card
+      padding="sm"
       hover={!!onClick}
       className={cn(className)}
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
-        <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', iconBg)}>
+        <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center', iconBg)}>
           <Icon className="w-5 h-5" />
         </div>
         {trend && (
@@ -34,7 +35,7 @@ export default function StatsCard({ icon: Icon, label, value, trend, trendUp, ic
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900 mt-3 tabular-nums">{value}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums">{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
     </Card>
   );

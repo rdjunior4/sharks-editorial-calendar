@@ -296,7 +296,7 @@ export default function OraculloClients() {
   const envCount = (env: EnvironmentType) => groups.filter(g => g.envs.includes(env)).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <PageHeader title="Clientes" subtitle="Visão consolidada de todos os ambientes" />
         <Button onClick={() => setWizardOpen(true)}>
@@ -321,7 +321,7 @@ export default function OraculloClients() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 text-primary-500 animate-spin" /></div>
       ) : groups.length === 0 ? (
         <Card>
           <EmptyState
@@ -332,7 +332,7 @@ export default function OraculloClients() {
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {groups.map(g => (
             <Card key={g.key} className="relative group flex flex-col">
               <div className="flex items-start gap-3">

@@ -109,7 +109,7 @@ export default function LeadDrawer({
 
   return (
     <Drawer isOpen={!!lead} onClose={onClose} title={lead.name} width="lg">
-      <div className="space-y-5">
+      <div className="space-y-4">
         {/* Banner do agente */}
       {lead.origin === 'prospecting_agent' && (
         <div className={cn(

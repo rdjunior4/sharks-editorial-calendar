@@ -96,7 +96,7 @@ export default function EnvProductsCatalog({ environment }: { environment: CrmEn
       ) : (
         <div className="space-y-2">
           {filtered.map(p => (
-            <Card key={p.id} className="flex items-center gap-4 p-4">
+            <Card key={p.id} className="flex items-center gap-3 p-3.5">
               <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
                 <Package className="w-5 h-5 text-primary-600" />
               </div>
