@@ -363,7 +363,7 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
 
         {/* Month View */}
         {view === 'month' && (
-          <Card padding="none" className="overflow-hidden flex flex-col min-h-0">
+          <Card padding="none" className="overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="grid grid-cols-7 border-b border-gray-200 shrink-0">
               {(isMobile ? ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'] : weekDays).map((day, i) => (
                 <div key={i} className="px-1 sm:px-3 py-2 text-xs font-semibold text-gray-500 text-center border-r last:border-r-0">
@@ -371,7 +371,7 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7">
+            <div className="grid grid-cols-7 grid-rows-6 flex-1 min-h-0">
               {calendarDays.map((day, i) => {
                 const dateStr = formatCalendarDate(day);
                 const dayActions = actions.filter(a => a.action_date === dateStr);
@@ -401,7 +401,7 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                       backgroundImage: `linear-gradient(${dayCampaigns[0].color || '#0066FF'}0F, ${dayCampaigns[0].color || '#0066FF'}0F)`,
                     } : undefined}
                     className={cn(
-                      'min-h-[88px] border-r border-b last:border-r-0 p-1 sm:p-1.5 transition-colors',
+                      'min-h-[72px] overflow-y-auto border-r border-b last:border-r-0 p-1 sm:p-1.5 transition-colors flex flex-col',
                       !isCurrentMonth && 'bg-gray-50/50',
                       isToday && 'bg-primary-50/30',
                       dayActions.length === 0 && 'cursor-pointer',
