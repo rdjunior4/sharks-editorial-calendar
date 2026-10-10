@@ -129,7 +129,9 @@ async function processAnalysis(admin: ReturnType<typeof serviceClient>, job: Job
     location: lead.location,
     company_size: lead.company_size,
     signals: (Array.isArray(job.input?.signals) ? job.input.signals : []) as string[],
-    notes: lead.notes,
+    // Enriquecimento (M2): o resumo do site/CNPJ entra como nota para a JEV reavaliar
+    notes: [lead.notes, typeof job.input?.research === 'string' ? String(job.input.research) : '']
+      .filter(Boolean).join(' — ') || lead.notes,
   };
 
   const icp = await loadCampaignIcp(admin, job.campaign_id);
@@ -170,8 +172,29 @@ async function processAnalysis(admin: ReturnType<typeof serviceClient>, job: Job
       lead_id: leadId,
       type: 'generate_message',
       dedupe_key: `draft-${leadId}`,
-      input: { icp_fit: analysis.icpFit },
+      input: { icp_fit: analysis.icp_fit ?? analysis.icpFit },
     });
+  } else if (
+    !job.input?.from_enrich &&
+    analysis.icpFit < settings.params.fit_draft_threshold &&
+    analysis.nextAction !== 'descartar'
+  ) {
+    // M2: fit no meio (49–74%) → enriquece com o site (BrasilAPI/Firecrawl) e re-analisa 1x
+    const { count: enrichTried } = await admin
+      .from('prospecting_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('campaign_id', job.campaign_id)
+      .eq('lead_id', leadId)
+      .eq('type', 'enrich_company');
+    if ((enrichTried ?? 0) === 0) {
+      await admin.from('prospecting_jobs').insert({
+        campaign_id: job.campaign_id,
+        lead_id: leadId,
+        type: 'enrich_company',
+        dedupe_key: `enrich-${leadId}`,
+        input: { lead_id: leadId, icp_fit: analysis.icpFit },
+      });
+    }
   }
 
   await completeJob(admin, job.id, {
@@ -666,6 +689,106 @@ async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow,
   });
 }
 
+/* ─── ENRIQUECIMENTO (M2): resumo do site/CNPJ → website_summary → re-análise ─── */
+async function processEnrich(admin: ReturnType<typeof serviceClient>, job: JobRow, settings: AgentSettings, environment: string) {
+  const leadId = job.lead_id ?? (typeof job.input?.lead_id === 'string' ? job.input.lead_id : null);
+  if (!leadId) throw new Error('Job de enriquecimento sem lead_id');
+
+  const { data: lead, error: leadErr } = await admin
+    .from('crm_leads')
+    .select('id, name, segment, location, environment, notes')
+    .eq('id', leadId)
+    .maybeSingle();
+  if (leadErr) throw new Error(`Buscar lead: ${leadErr.message}`);
+  if (!lead) throw new Error('Lead não encontrado para enriquecimento');
+  const row = lead as { id: string; name: string; segment: string | null; location: string | null; environment: string; notes: string | null };
+
+  let researched = '';
+  let source = '';
+
+  // 1) CNPJ no input/notes → BrasilAPI (sem custo)
+  const cnpj = (String(job.input?.cnpj ?? '') + ' ' + String(row.notes ?? '')).match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/)?.[0]?.replace(/\D/g, '');
+  if (cnpj && cnpj.length === 14) {
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (res.ok) {
+        const c = await res.json() as {
+          razao_social?: string; descricao_atividade?: string; cnae_fiscal_descricao?: string; municipio?: string; uf?: string; ddd_telefone_1?: string;
+        };
+        researched = [
+          c.razao_social ? `Razão social: ${c.razao_social}` : '',
+          (c.descricao_atividade || c.cnae_fiscal_descricao) ? `Atividade: ${c.descricao_atividade ?? c.cnae_fiscal_descricao}` : '',
+          (c.municipio || c.uf) ? `Cidade: ${c.municipio ?? ''}/${c.uf ?? ''}` : '',
+          c.ddd_telefone_1 ? `Telefone registrado: ${c.ddd_telefone_1}` : '',
+        ].filter(Boolean).join(' · ');
+        source = 'brasilapi';
+      }
+    } catch (e) {
+      console.error('[prospecting-run] BrasilAPI falhou:', e);
+    }
+  }
+
+  // 2) Sem CNPJ → Firecrawl do site (notes contém URL do discovery) / pesquisa por nome
+  if (!researched) {
+    const fireKey = Deno.env.get('FIRECRAWL_API_KEY');
+    if (fireKey) {
+      const siteUrl = (row.notes ?? '').startsWith('http') ? row.notes : null;
+      try {
+        const scrapeUrl = siteUrl ?? null;
+        if (scrapeUrl) {
+          const res = await fetch('https://api.firecrawl.dev/v2/scrape', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${fireKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: scrapeUrl, formats: ['markdown'], onlyMainContent: true }),
+          });
+          if (res.ok) {
+            const jb = await res.json() as { data?: { markdown?: string } };
+            researched = (jb.data?.markdown ?? '').slice(0, 1200);
+            source = 'firecrawl_site';
+          }
+        } else {
+          const res = await fetch('https://api.firecrawl.dev/v2/search', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${fireKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: [row.name, row.segment, row.location].filter(Boolean).join(' ') + ' o que faz a empresa',
+              limit: 3,
+              scrapeOptions: { formats: ['markdown'], onlyMainContent: true },
+            }),
+          });
+          if (res.ok) {
+            const jb = await res.json() as { data?: { web?: Array<{ title?: string; description?: string; markdown?: string }> } };
+            researched = (jb.data?.web ?? []).map(d => `${d.title ?? ''}: ${d.description ?? (d.markdown ?? '').slice(0, 300)}`).join(' | ').slice(0, 1200);
+            source = 'firecrawl_search';
+          }
+        }
+      } catch (e) {
+        console.error('[prospecting-run] Firecrawl enrich falhou:', e);
+      }
+    }
+  }
+
+  if (!researched) {
+    // Sem fonte disponível — não é falha da esteira: registra e conclui
+    await logActivity(admin, leadId, 'system', 'Enriquecimento indisponível (sem CNPJ e Firecrawl não configurado) — seguindo com os dados atuais.');
+    await completeJob(admin, job.id, { source: null, note: 'sem fonte de enriquecimento' });
+    return;
+  }
+
+  const summary = researched.slice(0, 1200);
+  await logActivity(admin, leadId, 'system', `🔎 Lead enriquecido via ${source} — re-análise agendada.`);
+  await completeJob(admin, job.id, { source, chars: summary.length });
+
+  // Re-análise única com o resumo (dedupe própria impede loop: from_enrich=true)
+  await admin.from('prospecting_jobs').insert({
+    campaign_id: job.campaign_id,
+    lead_id: leadId,
+    type: 'analyze_company',
+    dedupe_key: `analyze-enrich-${leadId}`,
+    input: { lead_id: leadId, from_enrich: true, research: summary },
+  });
+}
+
 /* ─── DESCOBERTA: roteia por fornecedor — Places / Firecrawl / auto ─── */
 async function processDiscovery(
   admin: ReturnType<typeof serviceClient>,
@@ -1096,6 +1219,9 @@ Deno.serve(async req => {
         } else if (job.type === 'mass_dispatch') {
           await processMass(admin, job, settings, environment, channels);
           dispatched++; // coordenador conclui na hora (fila de sends é per-lead)
+        } else if (job.type === 'enrich_company') {
+          await processEnrich(admin, job, settings, environment);
+          analyzed++;
         } else if (job.type === 'discover_companies') {
           const provider = (camp as { discovery_provider?: string } | null)?.discovery_provider ?? 'auto';
           await processDiscovery(admin, job, settings, environment, provider);

@@ -832,3 +832,32 @@ test('central oracullo: rotas, menu e wrappers com switcher de ambiente', async 
     assert.ok(page.includes('EnvSwitcher'), `${file} sem switcher`);
   }
 });
+
+/* ---- M2: enriquecimento local + notifica��o de escalonamento (081) ---- */
+
+test('migration 081: enum lead_escalated + indice por lead/type dos jobs', async () => {
+  const m = await readFile(new URL('../supabase/migrations/081_enrich_notifications.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes("ADD VALUE IF NOT EXISTS 'lead_escalated'"));
+  assert.ok(m.includes('prospecting_jobs_ledtype_idx'));
+});
+
+test('worker M2: processEnrich com BrasilAPI/Firecrawl e re-analise unica', async () => {
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(worker.includes('processEnrich'));
+  assert.ok(worker.includes("brasilapi.com.br/api/cnpj/v1"));
+  assert.ok(worker.includes("api.firecrawl.dev/v2/scrape"));
+  assert.ok(worker.includes('`analyze-enrich-${leadId}`'));
+  assert.ok(worker.includes('from_enrich'));
+  // gatilho: fit no meio enfileira enrich 1x por lead
+  assert.ok(worker.includes("type: 'enrich_company'"));
+  assert.ok(worker.includes("dedupe_key: `enrich-${leadId}`"));
+  // a pesquisa do enrich entra como nota na re-analise
+  assert.ok(worker.includes('job.input?.research'));
+});
+
+test('conversa: escalonamento notifica staff (lead_escalated)', async () => {
+  const edge = await readFile(new URL('../supabase/functions/prospecting-conversation/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("'lead_escalated'"));
+  assert.ok(edge.includes("from('notifications')"));
+  assert.ok(edge.includes("from('user_environments')"));
+});
