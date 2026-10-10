@@ -364,6 +364,8 @@ test('hooks e UI: pagina Parceiros no padrao do catalogo + marcos no calendario'
   assert.ok(page.includes('createMarco'));
   assert.ok(page.includes('reuniao_parceiro'));
   assert.ok(page.includes('acao_parceiro'));
+  // INSERT precisa incluir environment (constraints NOT NULL) — bug 076
+  assert.ok(page.includes('insert({ ...payload, environment })'));
 
   const nav = await readFile(new URL('../src/components/layout/navItems.ts', import.meta.url), 'utf8');
   assert.ok(nav.includes("path: '/sharks/parceiros'"));

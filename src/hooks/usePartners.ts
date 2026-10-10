@@ -19,6 +19,8 @@ export interface Partner {
 }
 
 export interface PartnerPayload {
+  /** Obrigatório no INSERT (partners.environment NOT NULL); update não altera */
+  environment?: CrmEnvironment;
   name: string;
   contact_name: string | null;
   contact_email: string | null;
