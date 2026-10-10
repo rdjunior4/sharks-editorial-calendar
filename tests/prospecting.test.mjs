@@ -882,3 +882,22 @@ test('form da agenda: produtos do catalogo novo (environment_products) por ambie
   assert.ok(form.includes("eq('environment', environment)"));
   assert.ok(form.includes("from('products')") === false);
 });
+
+test('datas estrategicas: god-view dedupe por titulo+data e unique por workspace', async () => {
+  const hook = await readFile(new URL('../src/hooks/useStrategicDates.ts', import.meta.url), 'utf8');
+  assert.ok(hook.includes('God-view (sem workspace)'));
+  assert.ok(hook.includes("key = `${d.title}|${d.date}`"));
+  const m = await readFile(new URL('../supabase/migrations/082_strategic_dates_unique.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('uq_strategic_dates_ws_title_date'));
+  assert.ok(m.includes('maintém a mais antiga') || m.includes('mantém a mais antiga') || m.includes('mantem a mais antiga') || m.includes('mais antiga'));
+});
+
+test('migration 083: FKs de produto repontadas para environment_products', async () => {
+  const m = await readFile(new URL('../supabase/migrations/083_products_fk_migration.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('DROP CONSTRAINT IF EXISTS actions_product_id_fkey'));
+  assert.ok(m.includes('ADD CONSTRAINT actions_product_id_fkey'));
+  assert.ok(m.includes('REFERENCES public.environment_products(id)'));
+  assert.ok(m.includes('action_products_product_id_fkey'));
+  assert.ok(m.includes('ON DELETE SET NULL'));
+  assert.ok(m.includes('lower(ep.name) = lower(p.name)'));
+});
