@@ -61,27 +61,6 @@
                 "conditions": [
                   {
                     "leftValue": "={{ $json.body.type }}",
-                    "rightValue": "enrich_company",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "enrich_company"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "version": 2
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.body.type }}",
                     "rightValue": "send_message",
                     "operator": {
                       "type": "string",
@@ -107,42 +86,6 @@
       "position": [
         440,
         300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "=https://brasilapi.com.br/api/cnpj/v1/{{ $json.body.input.cnpj }}",
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "b1000000-0004-4000-8000-000000000004",
-      "name": "BrasilAPI CNPJ",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        660,
-        140
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const item = $input.item.json;\nconst webhook = $('Webhook Oracullo').first().json;\nif (item.error || !item.cnpj) {\n  return { json: { job_id: webhook.body.job_id, status: 'failed', error: 'CNPJ invalido ou BrasilAPI indisponivel' } };\n}\nreturn { json: {\n  job_id: webhook.body.job_id,\n  status: 'completed',\n  output: {\n    cnpj: item.cnpj,\n    razao_social: item.razao_social ?? null,\n    municipio: item.municipio ?? null,\n    uf: item.uf ?? null,\n    ddd_telefone: item.ddd_telefone_1 ?? null,\n    cnae_descricao: item.cnae_fiscal_descricao ?? null,\n    situacao: item.descricao_situacao_cadastral ?? null,\n    capital_social: item.capital_social ?? null\n  }\n} };"
-      },
-      "id": "b1000000-0005-4000-8000-000000000005",
-      "name": "Normalizar Enriquecimento",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        880,
-        140
       ]
     },
     {
@@ -311,13 +254,6 @@
       "main": [
         [
           {
-            "node": "BrasilAPI CNPJ",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Preparar Envio",
             "type": "main",
             "index": 0
@@ -326,28 +262,6 @@
         [
           {
             "node": "Default Resultado",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BrasilAPI CNPJ": {
-      "main": [
-        [
-          {
-            "node": "Normalizar Enriquecimento",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalizar Enriquecimento": {
-      "main": [
-        [
-          {
-            "node": "Preparar Callback",
             "type": "main",
             "index": 0
           }
