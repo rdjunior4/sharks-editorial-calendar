@@ -861,3 +861,17 @@ test('conversa: escalonamento notifica staff (lead_escalated)', async () => {
   assert.ok(edge.includes("from('notifications')"));
   assert.ok(edge.includes("from('user_environments')"));
 });
+
+test('n8n Router final: sem BrasilAPI/enrich (M2 e local no Edge), so send_message + fallback', async () => {
+  const router = JSON.parse(await readFile(new URL('../n8n/oracullo-router.json', import.meta.url), 'utf8'));
+  const names = router.nodes.map(n => n.name);
+  assert.ok(!names.includes('BrasilAPI CNPJ'));
+  assert.ok(!names.includes('Normalizar Enriquecimento'));
+  const sw = router.nodes.find(n => n.name === 'Tipo de Job');
+  const keys = sw.parameters.rules.values.map(v => v.outputKey);
+  assert.deepEqual(keys, ['send_message']);
+  assert.equal(sw.parameters.options.fallbackOutput, 'extra');
+  const c = router.connections;
+  assert.equal(c['Tipo de Job'].main[0][0].node, 'Preparar Envio');
+  assert.equal(c['Tipo de Job'].main[1][0].node, 'Default Resultado');
+});
