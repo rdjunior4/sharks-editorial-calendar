@@ -62,7 +62,7 @@ export default function PartnersPage({ environment }: { environment: CrmEnvironm
       };
       const { error } = editing
         ? await supabase.from('partners').update(payload).eq('id', editing.id)
-        : await supabase.from('partners').insert(payload);
+        : await supabase.from('partners').insert({ ...payload, environment });
       if (error) throw new Error(error.message);
       toast.success(editing ? 'Parceiro atualizado!' : 'Parceiro cadastrado!');
       setFormOpen(false);
