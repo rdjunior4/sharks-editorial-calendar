@@ -927,3 +927,13 @@ test('acoes multi-canal: migration 084 + chips multipla escolha no form + drawer
   const drawer = await readFile(new URL('../src/components/actions/ActionDrawer.tsx', import.meta.url), 'utf8');
   assert.ok(drawer.includes(' yielding ') === false && drawer.includes('action.channels?.length'));
 });
+
+test('formato animacao: enum no banco (085) e mapeado no calendario/formulario', async () => {
+  const m = await readFile(new URL('../supabase/migrations/085_animation_format.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes("ADD VALUE IF NOT EXISTS 'animation'"));
+  const types = await readFile(new URL('../src/types/index.ts', import.meta.url), 'utf8');
+  assert.ok(types.includes("'animation'"));
+  const c = await readFile(new URL('../src/lib/constants.ts', import.meta.url), 'utf8');
+  assert.ok(c.includes("animation: 'Anim"));
+  assert.ok(c.includes('bg-fuchsia-100'));
+});
