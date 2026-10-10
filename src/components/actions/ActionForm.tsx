@@ -169,18 +169,23 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
   // independente do cliente selecionado (mesma lista da página Time)
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; full_name: string }>>([]);
 
-  // Catálogo do workspace: produtos ativos
+  // Catálogo do ambiente (065): produtos ativos do environment da agenda
   const [productOptions, setProductOptions] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => {
-    if (!isOpen || !workspaceId) return;
+    if (!isOpen || !environment) return;
     let active = true;
     (async () => {
-      const pRes = await supabase.from('products').select('id, name').eq('workspace_id', workspaceId).eq('status', 'active').order('name');
+      const pRes = await supabase
+        .from('environment_products')
+        .select('id, name')
+        .eq('environment', environment)
+        .eq('status', 'active')
+        .order('name');
       if (!active) return;
       setProductOptions((pRes.data ?? []) as Array<{ id: string; name: string }>);
     })();
     return () => { active = false; };
-  }, [isOpen, workspaceId]);
+  }, [isOpen, environment]);
 
   useEffect(() => {
     if (!isOpen) return;
