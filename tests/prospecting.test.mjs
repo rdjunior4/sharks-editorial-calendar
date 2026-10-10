@@ -909,3 +909,21 @@ test('embeds de a��es apontam para o catalogo novo (FIX pos-083)', async () 
   assert.ok(s.includes(':products!') === false);
   assert.ok(s.includes('image_url') === false);
 });
+
+test('acoes multi-canal: migration 084 + chips multipla escolha no form + drawer em lista', async () => {
+  const m = await readFile(new URL('../supabase/migrations/084_actions_multi_channel.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('ADD COLUMN IF NOT EXISTS channels text[]'));
+  assert.ok(m.includes('ARRAY[channel]'));
+
+  const form = await readFile(new URL('../src/components/actions/ActionForm.tsx', import.meta.url), 'utf8');
+  assert.ok(form.includes('Canais (m'));
+  assert.ok(form.includes('channels: formData.channels'));
+  assert.ok(form.includes("handleChange('channel', next[0] ?? '')"));
+  assert.ok(form.includes('Check') && form.includes('cn'));
+
+  const s = await readFile(new URL('../src/lib/actionService.ts', import.meta.url), 'utf8');
+  assert.ok(s.includes(',channels,'));
+
+  const drawer = await readFile(new URL('../src/components/actions/ActionDrawer.tsx', import.meta.url), 'utf8');
+  assert.ok(drawer.includes(' yielding ') === false && drawer.includes('action.channels?.length'));
+});

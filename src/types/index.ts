@@ -152,6 +152,8 @@ export interface Action {
   action_type: ActionType;
   format: ContentFormat | null;
   channel: string | null;
+  /** Múltiplos canais da ação (084) — channel fica com o 1º (compat) */
+  channels?: string[];
   objective: Objective | null;
   funnel_stage: FunnelStage | null;
   audience: string | null;

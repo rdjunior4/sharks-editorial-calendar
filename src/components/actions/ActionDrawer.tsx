@@ -146,10 +146,16 @@ export default function ActionDrawer({ action, isOpen, onClose, onEdit, onDelete
               <p className="text-sm text-gray-900">{CONTENT_FORMATS[action.format]}</p>
             </div>
           )}
-          {action.channel && (
+          {(action.channels?.length || action.channel) && (
             <div className="space-y-1">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Canal</p>
-              <p className="text-sm text-gray-900">{action.channel}</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Canais</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(action.channels?.length ? action.channels : [action.channel]).filter(Boolean).map(c => (
+                  <span key={c} className="px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-xs text-gray-700">
+                    {c}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
           {responsible && (
