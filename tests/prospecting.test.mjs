@@ -939,3 +939,12 @@ test('formato animacao: enum no banco (085) e mapeado no calendario/formulario',
   assert.ok(c.includes("animation: 'Anim"));
   assert.ok(c.includes('bg-fuchsia-100'));
 });
+
+test('google sync: fan-out contido (agenda do proprio workspace) - sem dupleto fisico', async () => {
+  const g = await readFile(new URL('../supabase/functions/_shared/google.ts', import.meta.url), 'utf8');
+  assert.ok(g.includes('fanoutIntegs'));
+  assert.ok(g.includes('const own = integs.filter(i => i.workspace_id === workspaceId)'));
+  // dentro do ciclo create/update usa fanoutIntegs (delete path continua amplo)
+  assert.ok(g.includes('for (const integ of fanoutIntegs)'));
+  assert.ok(g.includes('action_partners') === false);
+});

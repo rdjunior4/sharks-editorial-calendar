@@ -371,14 +371,11 @@ export function buildEventBody(
   const action = row;
   const pillar = action.editorial_pillar as { name?: string } | null;
   const campaign = action.campaign as { name?: string; objective?: string } | null;
-    const partnerNames = ((action.action_partners ?? []) as Array<{ partner?: { name?: string } | null }>)
-      .map(ap => ap.partner?.name)
-      .filter((n): n is string => !!n);
 
   const lines: string[] = [];
   if (wsName) lines.push(`Cliente: ${wsName}`);
   if (action.channel) lines.push(`Canal: ${action.channel}`);
-    if (partnerNames.length > 0) lines.push(`Parceiro(s): ${partnerNames.join(', ')}`);
+  if (action.channels?.length) lines.push(`Canais: ${action.channels.join(', ')}`);
   const tipo = pretty(action.format) || pretty(action.action_type);
   if (tipo) lines.push(`Tipo/Formato: ${tipo}`);
   if (pillar?.name) lines.push(`Pilar: ${pillar.name}`);
@@ -509,11 +506,21 @@ export async function processWorkspace(
     const integs = ([...(wsRows ?? []), ...(personalRows ?? [])] as unknown as IntegrationRow[])
       .filter(i => envSyncEnabled(i, env));
 
+    // Fan-out CONTIDO (anti-duplicata física): a energia da ação é UMA por
+    // ação — sempre que o workspace tem accent própria (agenda da agência
+    // do cliente), é ELA que recebe; as globais/pessoais cobrem só as
+    // carentes. Antes, o fan-out escrevia o mesmo evento em contas cujos
+    // alvos são calendários físicos diferentes -> dupleto visual no Google.
+    const fanoutIntegs = (() => {
+      const own = integs.filter(i => i.workspace_id === workspaceId);
+      return own.length > 0 ? own : integs;
+    })();
+
     const { data: queue } = await admin
       .from('calendar_sync_queue')
       .select(
         'id, workspace_id, action_id, source, source_id, operation, attempts, google_event_id, integration_id, ' +
-        'action:actions(*, campaign:campaigns(name,objective), editorial_pillar:editorial_pillars(name), action_partners(partner:partners(name)))',
+        'action:actions(*, campaign:campaigns(name,objective), editorial_pillar:editorial_pillars(name))',
       )
       .eq('workspace_id', workspaceId)
       .eq('status', 'pending')
@@ -725,7 +732,7 @@ export async function processWorkspace(
           // EventId conhecido por agenda fisica (inicializado dos links existentes)
           const calEventIds = new Map<string, string>();
           const writtenCals = new Set<string>();
-          for (const integ of integs) {
+          for (const integ of fanoutIntegs) {
             const calId0 = targetCalendarFor(integ, env);
             const key0 = `${integ.google_account_email ?? integ.id}|${calId0}`;
             const lid = linkMap.get(`${src}:${sid}:${integ.id}`);
@@ -734,7 +741,7 @@ export async function processWorkspace(
 
           const errs: string[] = [];
           let anyOk = false;
-          for (const integ of integs) {
+          for (const integ of fanoutIntegs) {
             usedIntegIds.add(integ.id);
             try {
               const calId = targetCalendarFor(integ, env);
