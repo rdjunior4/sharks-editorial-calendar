@@ -48,8 +48,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         collapsed && 'lg:ml-[68px]',
       )}>
         <TopHeader onOpenMobileNav={() => setMobileNavOpen(true)} />
-        <main className="p-4 pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-6 flex-1 flex flex-col">
-          <div className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col">
+        <main className="p-3 sm:p-4 lg:p-6 pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-6 flex-1 flex flex-col min-w-0">
+          <div className="w-full flex-1 flex flex-col">
             {children}
           </div>
         </main>
