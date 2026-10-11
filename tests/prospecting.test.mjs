@@ -948,3 +948,14 @@ test('google sync: fan-out contido (agenda do proprio workspace) - sem dupleto f
   assert.ok(g.includes('for (const integ of fanoutIntegs)'));
   assert.ok(g.includes('action_partners') === false);
 });
+
+test('migration 086: chk_permission inclui crm e prospecting (11 chaves do app)', async () => {
+  const m = await readFile(new URL('../supabase/migrations/086_permissions_check.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes("'crm'::text"));
+  assert.ok(m.includes("'prospecting'::text"));
+  assert.ok(m.includes('team_member_access'));
+  const perms = await readFile(new URL('../src/lib/permissions.ts', import.meta.url), 'utf8');
+  for (const k of ['calendar', 'campaigns', 'editorial', 'templates', 'history', 'chat', 'crm', 'prospecting', 'clients', 'integrations', 'team']) {
+    assert.ok(m.includes(`'${k}'::text`), `permissao ausente na CHECK: ${k}`);
+  }
+});
