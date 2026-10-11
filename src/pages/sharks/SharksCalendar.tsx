@@ -371,7 +371,10 @@ const weekDayWindow = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cu
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 grid-rows-6 flex-1 min-h-0">
+            <div
+              className="grid grid-cols-7 flex-1 min-h-0"
+              style={{ gridTemplateRows: `repeat(${Math.ceil(calendarDays.length / 7)}, minmax(0, 1fr))` }}
+            >
               {calendarDays.map((day, i) => {
                 const dateStr = formatCalendarDate(day);
                 const dayActions = actions.filter(a => a.action_date === dateStr);
