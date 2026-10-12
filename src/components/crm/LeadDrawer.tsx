@@ -153,6 +153,24 @@ export default function LeadDrawer({
           {lead.conversation_mode === 'human' && lead.escalation_reason && (
             <p className="text-[11px] text-rose-600 pl-6">🔔 Escalonado: {lead.escalation_reason}</p>
           )}
+          {lead.suppress_outreach && (
+            <p className="text-[11px] text-rose-600 pl-6 flex items-center gap-1">
+              🚫 Opt-out LGPD — sem disparos/follow-ups
+              <button
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase.from('crm_leads').update({ suppress_outreach: false }).eq('id', lead.id);
+                    if (error) throw error;
+                    toast.success('Opt-out resetado — o lead volta à esteira do agente.');
+                  } catch { toast.error('Erro ao resetar opt-out'); }
+                }}
+                className="underline underline-offset-2 hover:text-rose-700 cursor-pointer"
+                title="Restaura o erro (consentimento humano confirmado offline)"
+              >
+                resetar
+              </button>
+            </p>
+          )}
           {lead.conversation_summary && (
             <p className="text-[11px] text-gray-500 pl-6 line-clamp-3">📝 {lead.conversation_summary}</p>
           )}

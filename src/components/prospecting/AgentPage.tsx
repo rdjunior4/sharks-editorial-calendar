@@ -438,6 +438,13 @@ export default function AgentSection({ environment, editable = false }: AgentPag
               rows={2}
               disabled={!editable}
             />
+            <Input
+              label="Identificação de IA (LGPD — vai no primeiro contato)"
+              value={settingsForm.personality.ai_disclosure ?? ''}
+              onChange={(e) => setPer('ai_disclosure', e.target.value)}
+              placeholder="Ex.: Sou a Sofia, assistente de IA da Sharks Company"
+              disabled={!editable}
+            />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Select
                 label="Resposta do agente"
