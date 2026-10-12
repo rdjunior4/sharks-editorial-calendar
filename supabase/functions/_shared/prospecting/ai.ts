@@ -56,6 +56,8 @@ export interface AgentPersonality {
   signature?: string;
   greeting_style?: string;
   voice?: AgentVoice;
+  /** Identificação de IA (LGPD/CONAR): incluída no primeiro contato */
+  ai_disclosure?: string;
 }
 
 export interface ApproachInput {
@@ -258,6 +260,8 @@ export function buildGlmSystemPrompt(personality: AgentPersonality, campaignName
     `Contexto: primeira abordagem B2B para a campanha "${campaignName ?? 'prospecção'}".`,
     personality.greeting_style ? `Abertura: ${personality.greeting_style}.` : '',
     personality.brand_voice_rules ? `Regras de voz: ${personality.brand_voice_rules}` : '',
+    // Transparência de IA (LGPD/CONAR): identificação sempre presente no rascunho
+    personality.ai_disclosure ? `IDENTIFICAÇÃO OBRIGATÓRIA: inclua a linha "${personality.ai_disclosure}" no final da mensagem (sem adaptar o texto).` : '',
     'Formato obrigatório da resposta: primeira linha "Assunto: <assunto curto>", depois uma linha em branco e a mensagem (máximo 120 palavras). Não use placeholders entre colchetes.',
     personality.signature ? `Finalize com a assinatura: ${personality.signature}` : '',
   ].filter(Boolean).join('\n');
@@ -319,7 +323,7 @@ export class GlmProvider implements GenerativeAI, GenerativeChatAI {
         max_tokens: 512,
         thinking: { type: 'disabled' },
         messages: [
-          { role: 'system', content: buildGlmConversationPrompt(input.personality, input.campaignName, { refreshSummary: input.refreshSummary }) },
+          { role: 'system', content: buildGlmConversationPrompt(input.personality, input.campaignName, { refreshSummary: input.refreshSummary, aiDisclosure: input.aiDisclosure ?? null }) },
           { role: 'user', content: userPrompt },
         ],
       }),
@@ -431,9 +435,11 @@ export interface ConversationInput {
   memory?: LeadMemory;
   /** Se true, pede ao GLM para também regerar o resumo da conversa */
   refreshSummary?: boolean;
+  /** Identificação de IA (LGPD/CONAR) — mencionada no primeiro contato */
+  aiDisclosure?: string | null;
 }
 
-export function buildGlmConversationPrompt(personality: AgentPersonality, campaignName?: string, opts?: { refreshSummary?: boolean }): string {
+export function buildGlmConversationPrompt(personality: AgentPersonality, campaignName?: string, opts?: { refreshSummary?: boolean; aiDisclosure?: string | null }): string {
   const tone = personality.tone === 'formal'
     ? 'Tom formal e profissional'
     : personality.tone === 'direto'
@@ -445,6 +451,8 @@ export function buildGlmConversationPrompt(personality: AgentPersonality, campai
     `Contexto: conversa de qualificação da campanha "${campaignName ?? 'prospecção'}".`,
     personality.greeting_style ? `Estilo de abertura quando for a primeira resposta: ${personality.greeting_style}.` : '',
     personality.brand_voice_rules ? `Regras de voz: ${personality.brand_voice_rules}` : '',
+    // Transparência de IA: no 1º turno da conversa apresente-se como agente
+    opts?.aiDisclosure ? `IDENTIDADE: ${opts.aiDisclosure}. Se esta for uma das primeiras mensagens da conversa, apresente-se brevemente com esta identificação, naturalmente.` : '',
     'Responda à ÚLTIMA mensagem do lead de forma natural, curta (máximo 80 palavras), sem placeholders entre colchetes e sem repetir o que já foi dito.',
     'Se faz sentido, finalize com UMA pergunta que avance a conversa (ex.: melhor dia/horário para conversar).',
     personality.signature ? `Assine apenas se for apropriado: ${personality.signature}` : '',

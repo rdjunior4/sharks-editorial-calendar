@@ -49,6 +49,7 @@ interface LeadRow {
   last_inbound_at: string | null;
   rate_window_started_at: string | null;
   rate_count: number | null;
+  suppress_outreach: boolean | null;
 }
 
 async function findLead(
@@ -62,7 +63,7 @@ async function findLead(
   if (filters.length === 0) return null;
   const { data } = await admin
     .from('crm_leads')
-    .select('id, environment, name, segment, location, company_size, notes, contact_phone, social_instagram, prospecting_status, prospecting_campaign_id, ai_data, jev_memory, lead_temperature, conversation_summary, conversation_mode, assigned_human, escalation_reason, last_contact_at, last_inbound_at, rate_window_started_at, rate_count')
+    .select('id, environment, name, segment, location, company_size, notes, contact_phone, social_instagram, prospecting_status, prospecting_campaign_id, ai_data, jev_memory, lead_temperature, conversation_summary, conversation_mode, assigned_human, escalation_reason, last_contact_at, last_inbound_at, rate_window_started_at, rate_count, suppress_outreach')
     .eq('environment', environment)
     .or(filters.join(','))
     .limit(1)
@@ -445,6 +446,50 @@ Deno.serve(async req => {
     if (mediaNote) text = [text, mediaNote].filter(Boolean).join(' ').slice(0, 1000);
     if (!text) text = ' ';
     await logActivity(admin, lead.id, 'reply_received', `💬 WhatsApp do prospect: ${text.trim()}`);
+
+    // ── LGPD opt-out (G4): palavras de descadastro interrompem a esteira ──
+    const optNorm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const wantsOptOut = /(^|\s)(sair|pare|remove[rd]?|descadastrar|stop|remover)\b/.test(optNorm)
+      || /na[oa] quero (mais )?(receber|ser contactado|falar)/.test(optNorm);
+    if (wantsOptOut) {
+      await admin.from('crm_leads').update({
+        conversation_mode: 'human',
+        suppress_outreach: true,
+      }).eq('id', lead.id);
+      await admin.from('crm_lead_activities').insert({
+        lead_id: lead.id,
+        type: 'system',
+        content: `🚫 Opt-out LGPD registrado (${new Date().toISOString().slice(0, 10)}) — disparos/follow-ups suspensos; conversa segue aberta para o time.`,
+      });
+      return json(200, {
+        ok: true,
+        lead_id: lead.id,
+        mode: 'ai',
+        action: 'cancelled',
+        reply: 'Entendido! Removi você do nosso contato — sem mais mensagens automáticas. Se mudar de ideia, é só falar aqui. 👍',
+        audio_url: null,
+        media_url: null,
+        media_title: null,
+        action_label: 'opt_out',
+        escalated: false,
+        scheduled: false,
+        escalate_reason: null,
+        mid,
+        environment,
+      });
+    }
+
+    // ── Guard: lead suprimido ainda pode conversar, mas não recebe IA automática ──
+    if (lead.suppress_outreach) {
+      return json(200, {
+        ok: true,
+        lead_id: lead.id,
+        mode: 'human',
+        action: 'skip',
+        note: 'Lead com opt-out (LGPD) — resposta manual do time.',
+        environment,
+      });
+    }
     if (['discovered', 'qualified', 'queued', 'contacted'].includes(lead.prospecting_status ?? '')) {
       await admin.from('crm_leads').update({ prospecting_status: 'replied' }).eq('id', lead.id);
     }
@@ -494,6 +539,7 @@ Deno.serve(async req => {
       personality: (ctx.personality ?? {}) as AgentPersonality,
       icpDescription: ctx.icp?.icp_description ?? null,
       offer: ctx.campaignOffer,
+      aiDisclosure: (ctx.personality as { ai_disclosure?: string } | null)?.ai_disclosure ?? null,
       assets: ctx.assets,
       conversationHistory: ctx.history,
       incomingMessage: text,

@@ -221,6 +221,17 @@ async function handleMeta(
         }
         await mergeAiData(admin, leadId, { last_comment_id: commentId });
 
+        // ── LGPD opt-out (G4): gatilho de descadastro no comentário ──
+        const optNorm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const wantsOptOut = /(^|\s)(sair|pare|remover|descadastrar|stop)\b/.test(optNorm)
+          || /na[oa] quero (mais )?(receber|ser contactado|falar)/.test(optNorm);
+        if (wantsOptOut) {
+          await admin.from('crm_leads').update({ conversation_mode: 'human', suppress_outreach: true }).eq('id', leadId);
+          await logActivity(admin, leadId, 'system', `🚫 Opt-out LGPD (comentário IG) — disparos/follow-ups suspensos.`);
+          results.push({ kind: 'comment', lead_id: leadId, created, opted_out: true });
+          continue;
+        }
+
         // gatilho por palavra-chave da campanha → agente entra
         let triggered = false;
         if (campaignId) {
@@ -277,6 +288,15 @@ async function handleMeta(
         }
         // gatilho também na DM (075)
         let triggered = false;
+        const dmOpt = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const dmWantsOut = /(^|\s)(sair|pare|remover|descadastrar|stop)\b/.test(dmOpt)
+          || /na[oa] quero (mais )?(receber|ser contactado|falar)/.test(dmOpt);
+        if (dmWantsOut) {
+          await admin.from('crm_leads').update({ conversation_mode: 'human', suppress_outreach: true }).eq('id', existing.id);
+          await logActivity(admin, existing.id, 'system', `🚫 Opt-out LGPD (DM IG) — disparos/follow-ups suspensos.`);
+          results.push({ kind: 'message', lead_id: existing.id, opted_out: true });
+          continue;
+        }
         if (campaignId) {
           const keywords = await loadCampaignTriggers(admin, campaignId);
           triggered = matchesTriggers(text, keywords);

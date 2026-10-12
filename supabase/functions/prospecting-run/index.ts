@@ -406,7 +406,7 @@ async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow,
   if (!leadId) throw new Error('Job de envio sem lead_id');
   const { data: lead, error: leadErr } = await admin
     .from('crm_leads')
-    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, prospecting_status, ai_data, prospecting_campaign_id, last_inbound_at')
+    .select('id, name, contact_phone, contact_email, social_instagram, conversation_mode, prospecting_status, ai_data, prospecting_campaign_id, last_inbound_at, suppress_outreach')
     .eq('id', leadId)
     .maybeSingle();
   if (leadErr) throw new Error(`Buscar lead: ${leadErr.message}`);
@@ -414,9 +414,13 @@ async function processSend(admin: ReturnType<typeof serviceClient>, job: JobRow,
   const row = lead as {
     id: string; name: string; contact_phone: string | null; contact_email: string | null; social_instagram: string | null;
     conversation_mode: string | null; prospecting_status: string | null; ai_data: Record<string, unknown> | null; prospecting_campaign_id: string | null;
+    last_inbound_at?: string | null; suppress_outreach?: boolean | null;
   };
   if (row.conversation_mode === 'human') {
     throw new Error('Lead em modo humano — conversa manual, envio automático cancelado');
+  }
+  if (row.suppress_outreach) {
+    throw new Error('Lead com opt-out LGPD (suppression) — envio bloqueado');
   }
 
   // Mensagem: input.message (approve/follow-up) ou último rascunho do lead
@@ -584,6 +588,7 @@ async function processMass(admin: ReturnType<typeof serviceClient>, job: JobRow,
     .eq('prospecting_campaign_id', job.campaign_id)
     .eq('prospecting_status', 'qualified')
     .neq('conversation_mode', 'human')
+    .neq('suppress_outreach', true)
     .or('contact_phone.not.is.null,contact_email.not.is.null,social_instagram.not.is.null')
     .order('ai_fit', { ascending: false })
     .limit(200);
@@ -1139,6 +1144,7 @@ Deno.serve(async req => {
           .eq('prospecting_campaign_id', camp.id)
           .eq('prospecting_status', 'contacted')
           .eq('conversation_mode', 'ai')
+          .neq('suppress_outreach', true)
           .not('contact_phone', 'is', null)
           .lt('last_contact_at', cutoff)
           .limit(10);

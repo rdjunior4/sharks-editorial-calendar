@@ -163,6 +163,8 @@ export interface AgentSettings {
     signature: string;
     greeting_style: string;
     voice: AgentVoiceSettings;
+    /** LGPD/CONAR: identificação de IA no primeiro contato */
+    ai_disclosure?: string;
   };
   params: {
     fit_draft_threshold: number;
@@ -181,6 +183,7 @@ const DEFAULT_SETTINGS: AgentSettings = {
     agent_name: 'Agente', tone: 'amigavel', language: 'pt-BR', persona: '',
     brand_voice_rules: '', signature: '', greeting_style: 'curto, com pergunta aberta',
     voice: { mode: 'text', voice_id: '' },
+    ai_disclosure: '',
   },
   params: {
     fit_draft_threshold: 0.75, fit_discard_threshold: 0.5, confidence_auto: 0.7,

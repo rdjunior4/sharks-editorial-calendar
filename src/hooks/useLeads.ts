@@ -46,6 +46,8 @@ export interface Lead {
   escalation_reason?: string | null;
   conversation_summary?: string | null;
   jev_memory?: { message_count?: number; intents?: string[]; objections_handled?: string[] } | null;
+  /** LGPD: opt-out de disparos (087) */
+  suppress_outreach?: boolean | null;
 }
 
 export interface LeadActivity {

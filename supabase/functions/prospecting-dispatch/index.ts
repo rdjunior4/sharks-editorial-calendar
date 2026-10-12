@@ -59,6 +59,10 @@ Deno.serve(async req => {
         .limit(1);
       if (!draft || draft.length === 0) return json(409, { error: 'Nenhum rascunho de abordagem para enviar' });
 
+      // Staff aprovou manualmente = consentimento humano explícito →
+      // reseta a suppression LGPD (o envio sai, a conversa segue)
+      await admin.from('crm_leads').update({ suppress_outreach: false }).eq('id', row.id);
+
       const { error: enqErr } = await admin.from('prospecting_jobs').insert({
         campaign_id: row.prospecting_campaign_id,
         lead_id: row.id,

@@ -959,3 +959,30 @@ test('migration 086: chk_permission inclui crm e prospecting (11 chaves do app)'
     assert.ok(m.includes(`'${k}'::text`), `permissao ausente na CHECK: ${k}`);
   }
 });
+
+test('compliance (087): opt-out LGPD � suppression em toda a esteira + disclosure de IA', async () => {
+  const m = await readFile(new URL('../supabase/migrations/087_lgpd_optout.sql', import.meta.url), 'utf8');
+  assert.ok(m.includes('suppress_outreach boolean NOT NULL DEFAULT false'));
+
+  const edge = await readFile(new URL('../supabase/functions/prospecting-conversation/index.ts', import.meta.url), 'utf8');
+  assert.ok(edge.includes("suppress_outreach: true"));
+  assert.ok(edge.includes('Opt-out LGPD registrado'));
+  assert.ok(edge.includes('Entendido! Removi'));
+  assert.ok(edge.includes('suppress_outreach')); // guard + select
+
+  const worker = await readFile(new URL('../supabase/functions/prospecting-run/index.ts', import.meta.url), 'utf8');
+  assert.ok(worker.includes("neq('suppress_outreach', true)"));
+  assert.ok(worker.includes('opt-out LGPD (suppression)'));
+
+  const ingest = await readFile(new URL('../supabase/functions/prospecting-ingest/index.ts', import.meta.url), 'utf8');
+  assert.ok(ingest.includes("Opt-out LGPD (coment\u00e1rio IG)"));
+  assert.ok(ingest.includes('suppress_outreach: true'));
+
+  const d = await readFile(new URL('../supabase/functions/prospecting-dispatch/index.ts', import.meta.url), 'utf8');
+  assert.ok(d.includes('suppress_outreach: false'));
+
+  const ai = await readFile(new URL('../supabase/functions/_shared/prospecting/ai.ts', import.meta.url), 'utf8');
+  assert.ok(ai.includes('IDENTIFICA') && ai.includes('OBRIGAT'));
+  assert.ok(ai.includes('aiDisclosure'));
+  assert.ok(ai.includes('ai_disclosure?'));
+});
