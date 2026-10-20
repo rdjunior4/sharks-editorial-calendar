@@ -100,23 +100,49 @@ export default function SharksClients() {
     }
   };
 
-  /* ── Confirma desativação (com ou sem remoção de ações) ── */
-  const confirmDeactivate = async (removeActions: boolean) => {
+  /* ── Confirma desativação — histórico SEMPRE preservado (ações nunca são apagadas) ── */
+  const confirmDeactivate = async (clearGoogle: boolean) => {
     if (!deactivating || busyId) return;
-    const { ws, actionCount } = deactivating;
+    const { ws } = deactivating;
     setBusyId(ws.id);
     try {
-      if (removeActions && actionCount > 0) {
-        // O trigger BEFORE DELETE enfileira a remoção dos eventos no Google
-        const { error } = await supabase.from('actions').delete().eq('workspace_id', ws.id);
-        if (error) throw new Error(`Remover ações: ${error.message}`);
+      if (clearGoogle) {
+        // Remove SÓ os eventos do Google (ações/histórico permanecem no app):
+        // enfileira delete por evento → worker assinado apaga em até 1 min
+        const { data: links, error: linkErr } = await supabase
+          .from('calendar_event_links')
+          .select('google_event_id, integration_id')
+          .eq('workspace_id', ws.id)
+          .not('action_id', 'is', null)
+          .not('google_event_id', 'is', null);
+        if (linkErr) throw new Error(`Links do Google: ${linkErr.message}`);
+        const evs = ((links ?? []) as Array<{ google_event_id: string; integration_id: string }>)
+          .filter(l => l.google_event_id && l.integration_id);
+        if (evs.length > 0) {
+          const { error: qErr } = await supabase.from('calendar_sync_queue').insert(
+            evs.map(l => ({
+              workspace_id: ws.id,
+              operation: 'delete',
+              google_event_id: l.google_event_id,
+              integration_id: l.integration_id,
+              status: 'pending',
+              last_error: 'cliente desativado — evento removido do Google (histórico preservado no app)',
+            })),
+          );
+          if (qErr) throw new Error(`Fila de remoção Google: ${qErr.message}`);
+          const { data: acts } = await supabase.from('actions').select('id').eq('workspace_id', ws.id);
+          const actIds = (acts ?? []).map(a => a.id);
+          if (actIds.length > 0) {
+            await supabase.from('actions').update({ sync_status: 'not_synced' }).in('id', actIds);
+          }
+        }
       }
       const { error } = await supabase.from('workspaces').update({ is_active: false }).eq('id', ws.id);
       if (error) throw new Error(error.message);
       toast.success(
-        removeActions && actionCount > 0
-          ? `"${ws.name}" desativado e ${actionCount} ação(ões) removida(s) — os eventos saem do Google em até 1 min.`
-          : `"${ws.name}" desativado (dados preservados).`,
+        clearGoogle
+          ? `"${ws.name}" desativado — eventos removidos do Google em até 1 min. Histórico das ações 100% preservado no app.`
+          : `"${ws.name}" desativado — histórico, ações e eventos Google preservados.`,
       );
       setDeactivating(null);
       await Promise.all([refreshWorkspaces(), loadInactive()]);
@@ -264,33 +290,34 @@ export default function SharksClients() {
         onSaved={() => { refreshWorkspaces(); loadInactive(); }}
       />
 
-      {/* Modal de desativação */}
+      {/* Modal de desativação — histórico NUNCA é apagado */}
       <Modal isOpen={!!deactivating} onClose={() => setDeactivating(null)} title="Desativar cliente" size="sm">
         {deactivating && (
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
               Desativar <strong>{deactivating.ws.name}</strong>? Ele sai dos seletores e da agenda,
-              mas <strong>todos os dados são preservados</strong> (reativável a qualquer momento).
+              mas <strong>todo o histórico é preservado</strong> — as {deactivating.actionCount} ação(ões),
+              timeline, produtos e vínculos com parceiros continuam no app (reativável a qualquer momento).
             </p>
             {deactivating.actionCount > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
                 <p className="text-sm font-semibold text-amber-800">
-                  {deactivating.actionCount} ação(ões) cadastrada(s) neste cliente
+                  {deactivating.actionCount} ação(ões) sincronizadas com o Google Agenda
                 </p>
                 <p className="text-xs text-amber-700">
-                  Remover as ações também apaga os eventos vinculados no Google Agenda
-                  (processado pelo worker de sincronização em até 1 minuto).
+                  Opcionalmente, remova os eventos do Google deste cliente (as ações/histórico
+                  permanecem no app). O worker processa em até 1 minuto.
                 </p>
               </div>
             )}
             <div className="flex flex-col gap-2 pt-1">
               {deactivating.actionCount > 0 && (
-                <Button variant="danger" loading={busyId === deactivating.ws.id} onClick={() => confirmDeactivate(true)}>
-                  Desativar e remover ações
+                <Button loading={busyId === deactivating.ws.id} onClick={() => confirmDeactivate(true)}>
+                  Desativar e apagar eventos do Google
                 </Button>
               )}
               <Button variant="ghost" loading={busyId === deactivating.ws.id} onClick={() => confirmDeactivate(false)}>
-                Desativar somente (preservar tudo)
+                Desativar somente (manter histórico e eventos)
               </Button>
               <Button variant="ghost" onClick={() => setDeactivating(null)}>Cancelar</Button>
             </div>

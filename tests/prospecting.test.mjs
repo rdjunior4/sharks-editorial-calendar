@@ -987,14 +987,19 @@ test('compliance (087): opt-out LGPD � suppression em toda a esteira + disclos
   assert.ok(ai.includes('ai_disclosure?'));
 });
 
-test('clientes: switch de ativacao + modal de desativacao com remocao de acoes/Google', async () => {
+test('clientes: switch de ativacao + modal de desativacao SEM apagar historico', async () => {
   const page = await readFile(new URL('../src/pages/sharks/SharksClients.tsx', import.meta.url), 'utf8');
   assert.ok(page.includes("role=\"switch\""));
-  assert.ok(page.includes('Desativar e remover a'));
+  assert.ok(page.includes('Desativar e apagar eventos do Google'));
   assert.ok(page.includes('Desativar somente'));
-  assert.ok(page.includes("is_active: false"));
-  assert.ok(page.includes("is_active: true"));
-  assert.ok(page.includes("from('actions').delete()"));
+  assert.ok(page.includes('is_active: false'));
+  assert.ok(page.includes('is_active: true'));
+  // historico preservado: NUNCA apaga acoes — so enfileira remocao dos eventos Google
+  assert.ok(page.includes("from('actions').delete()") === false);
+  assert.ok(page.includes("from('calendar_sync_queue')"));
+  assert.ok(page.includes("operation: 'delete'"));
+  assert.ok(page.includes('not_synced'));
   assert.ok(page.includes('Desativados'));
   assert.ok(page.includes('loadInactive'));
+  assert.ok(page.includes('ws_env_map'));
 });
