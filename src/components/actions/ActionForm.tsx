@@ -615,6 +615,19 @@ export default function ActionForm({ action, isOpen, onClose, defaultDate, envir
               onChange={(e) => handleChange('product', e.target.value)}
               placeholder="Ex: Implantação ERP, Onboarding cliente"
             />
+            <ChipMultiSelect
+              label="Produtos ou serviços vinculados"
+              options={productOptions}
+              values={formData.product_ids}
+              onChange={(ids) => setFormData(p => ({
+                ...p,
+                product_ids: ids,
+                product_id: ids[0] ?? null,
+                product: productOptions.find(o => o.id === ids[0])?.name ?? p.product,
+              }))}
+              placeholder="Vincular produtos do catálogo..."
+              emptyMessage={productOptions.length === 0 ? 'Nenhum produto no catálogo — cadastre em Produtos' : 'Selecionar produtos...'}
+            />
             <Input
               label="Participantes"
               value={formData.audience}
