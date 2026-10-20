@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Plus, Building2, MapPin, ChevronRight, Pencil, Power } from 'lucide-react';
-import type { Workspace } from '@/types';
+import type { Workspace, EnvironmentType } from '@/types';
 
 /* ─── Interruptor (switch) ─── */
 function Switch({ on, onToggle, title, busy }: { on: boolean; onToggle: () => void; title: string; busy?: boolean }) {
@@ -49,12 +49,18 @@ export default function SharksClients() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const loadInactive = useCallback(async () => {
-    const { data } = await supabase
-      .from('workspaces')
-      .select('*')
-      .eq('is_active', false)
-      .order('name');
-    setInactive(((data ?? []) as Workspace[]).filter(w => w.environment === 'sharks_company'));
+    // workspaces não tem environment — resolve via RPC ws_env_map (mesmo
+    // padrão do WorkspaceContext); filtrar pelo campo inexistente zerava a lista
+    const [wsRes, envRes] = await Promise.all([
+      supabase.from('workspaces').select('*').eq('is_active', false).order('name'),
+      supabase.rpc('ws_env_map'),
+    ]);
+    const envMap = new Map<string, EnvironmentType>(
+      ((envRes.data ?? []) as Array<{ id: string; environment: EnvironmentType }>).map(r => [r.id, r.environment]),
+    );
+    setInactive(((wsRes.data ?? []) as Workspace[])
+      .map(ws => ({ ...ws, environment: envMap.get(ws.id) }))
+      .filter(w => w.environment === 'sharks_company'));
   }, []);
 
   useEffect(() => { loadInactive(); }, [loadInactive]);
