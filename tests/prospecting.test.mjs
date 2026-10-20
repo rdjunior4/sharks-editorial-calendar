@@ -986,3 +986,15 @@ test('compliance (087): opt-out LGPD � suppression em toda a esteira + disclos
   assert.ok(ai.includes('aiDisclosure'));
   assert.ok(ai.includes('ai_disclosure?'));
 });
+
+test('clientes: switch de ativacao + modal de desativacao com remocao de acoes/Google', async () => {
+  const page = await readFile(new URL('../src/pages/sharks/SharksClients.tsx', import.meta.url), 'utf8');
+  assert.ok(page.includes("role=\"switch\""));
+  assert.ok(page.includes('Desativar e remover a'));
+  assert.ok(page.includes('Desativar somente'));
+  assert.ok(page.includes("is_active: false"));
+  assert.ok(page.includes("is_active: true"));
+  assert.ok(page.includes("from('actions').delete()"));
+  assert.ok(page.includes('Desativados'));
+  assert.ok(page.includes('loadInactive'));
+});
